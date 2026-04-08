@@ -1,0 +1,13 @@
+{
+  "claude_dir": "~/.claude",
+  "sync_mode": "auto",
+  "sync_repo": "",
+  "subscription": 100,
+  "subscription_label": "Max",
+  "language": "auto",
+  "machine_labels": {
+    "my-macbook": "MacBook",
+    "office-imac": "Office"
+  },
+  "menu_bar_icon": "sfSymbol=sparkles.rectangle.stack"
+}
