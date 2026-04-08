@@ -15,7 +15,7 @@ if [ ! -d "$CLAUDE_DIR" ]; then
     echo "Claude Code config not found at $CLAUDE_DIR"
     echo "   Install Claude Code first: https://claude.ai/download"
     echo ""
-    if [ -e /dev/tty ]; then
+    if [ -r /dev/tty ] && echo -n "" > /dev/tty 2>/dev/null; then
         read -p "Continue anyway? (y/N) " -n 1 -r < /dev/tty
     else
         REPLY="y"
@@ -79,7 +79,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "   4) Team (\$30/mo)"
     echo "   5) API only / Skip"
     echo ""
-    if [ -e /dev/tty ]; then
+    if [ -r /dev/tty ] && echo -n "" > /dev/tty 2>/dev/null; then
         read -p "Choose [1-5, default 5]: " -n 1 -r SUB_CHOICE < /dev/tty
     else
         SUB_CHOICE="5"
