@@ -440,35 +440,38 @@ def _is_dark():
 
 DARK = _is_dark()
 
+# ── Color System ──
+# Brand: teal green · Info: blue · Warn: amber · Danger: red
+# Light mode: all colors must have hue saturation (pure gray/black renders transparent on frosted glass)
+
 if DARK:
-    H1   = "color=#4EC9B0 size=14"
-    H2   = "color=#4EC9B0 size=13"
-    ROW  = "color=#E0D8C8 size=13 font=Menlo"
-    ROW2 = "color=#E0D8C8 size=12 font=Menlo"
-    DIM  = "color=#9B9080 size=11 font=Menlo"
-    DIM2 = "color=#9B9080 size=10 font=Menlo"
-    META = "color=#6B6560 size=10"
-    SEC  = "color=#7AAFCF size=13"
-    SEC2 = "color=#7AAFCF size=12"
-    MODL = "color=#8B8578 size=12 font=Menlo"
-    BAR  = "color=#4EC9B0 size=11 font=Menlo"
-    WARN = "color=#E8A838 size=12"
+    # ── Dark mode: soft, warm tones on dark background ──
+    H1   = "color=#5CC6A7 size=14"                # teal — title/section headers
+    H2   = "color=#5CC6A7 size=13"
+    ROW  = "color=#D4CDC0 size=13 font=Menlo"     # warm white — primary data
+    ROW2 = "color=#D4CDC0 size=12 font=Menlo"
+    DIM  = "color=#9E9589 size=11 font=Menlo"     # warm gray — secondary info
+    DIM2 = "color=#9E9589 size=10 font=Menlo"
+    META = "color=#6B6560 size=10"                 # muted — footer/timestamps
+    SEC  = "color=#6BA4C9 size=13"                 # soft blue — interactive items
+    SEC2 = "color=#6BA4C9 size=12"
+    MODL = "color=#9E9589 size=12 font=Menlo"     # warm gray — model details
+    BAR  = "color=#5CC6A7 size=11 font=Menlo"     # teal — bar charts
+    WARN = "color=#E8A838 size=12"                 # amber — warnings
 else:
-    # Light mode: SwiftBar renders all plugin text as semi-transparent gray
-    # on frosted glass — this is a SwiftBar limitation, not fixable via color attr.
-    # We keep font=Menlo for alignment, use size for hierarchy.
-    H1   = "color=#0B6B50 size=14"
-    H2   = "color=#0B6B50 size=13"
-    ROW  = "size=13 font=Menlo"
-    ROW2 = "size=12 font=Menlo"
-    DIM  = "size=12 font=Menlo"
-    DIM2 = "size=11 font=Menlo"
-    META = "size=11"
-    SEC  = "color=#14507A size=13"
-    SEC2 = "color=#14507A size=12"
-    MODL = "size=12 font=Menlo"
-    BAR  = "color=#0B6B50 size=12 font=Menlo"
-    WARN = "color=#A05A10 size=12"
+    # ── Light mode: dark saturated tones (avoid pure gray → SwiftBar makes it transparent) ──
+    H1   = "color=#0D7058 size=14"                # deep teal — title
+    H2   = "color=#0D7058 size=13"
+    ROW  = "color=#1C2030 size=13 font=Menlo"     # dark navy — primary data (reads as near-black)
+    ROW2 = "color=#1C2030 size=12 font=Menlo"
+    DIM  = "color=#2C3040 size=12 font=Menlo"     # navy — secondary info
+    DIM2 = "color=#2C3040 size=11 font=Menlo"
+    META = "color=#3C4050 size=11"                 # slate — footer
+    SEC  = "color=#1B5A85 size=13"                 # deep blue — interactive items
+    SEC2 = "color=#1B5A85 size=12"
+    MODL = "color=#2C3040 size=12 font=Menlo"     # navy — model details
+    BAR  = "color=#0D7058 size=12 font=Menlo"     # deep teal — bar charts
+    WARN = "color=#B86E1A size=12"                 # dark amber — warnings
 
 def main():
     auto_update()
@@ -574,15 +577,15 @@ def main():
 
         # Each gauge gets a distinct color
         if DARK:
-            LINE_COLORS = ["#4EC9B0", "#7AAFCF", "#E0D8C8", "#E8A838"]
+            LINE_COLORS = ["#5CC6A7", "#E8A838", "#6BA4C9", "#D4CDC0"]   # teal, amber, blue, warm white
         else:
-            LINE_COLORS = ["#0B6B50", "#B86E1A", "#14507A", "#A05A10"]
+            LINE_COLORS = ["#0D7058", "#B86E1A", "#1B5A85", "#2C3040"]   # deep teal, dark amber, deep blue, navy
         _color_idx = [0]
 
         def _danger_color(pct):
             """Override color when usage is critical."""
-            if pct >= 80: return "#D03020" if not DARK else "#E85838"
-            if pct >= 60: return "#C07820" if not DARK else "#E8A838"
+            if pct >= 80: return "#C03020" if not DARK else "#E85838"
+            if pct >= 60: return "#B86E1A" if not DARK else "#E8A838"
             return None
 
         LW = 8
