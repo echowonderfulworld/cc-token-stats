@@ -17,15 +17,18 @@ OUT_DIR = os.path.join(REPO_DIR, "machines", MACHINE)
 OUT_FILE = os.path.join(OUT_DIR, "token-stats.json")
 
 MODEL_PRICING = {
-    "opus": {"input": 15, "output": 75, "cache_write": 18.75, "cache_read": 1.50},
-    "sonnet": {"input": 3, "output": 15, "cache_write": 3.75, "cache_read": 0.30},
-    "haiku": {"input": 0.80, "output": 4, "cache_write": 1.00, "cache_read": 0.08},
+    "opus_new":  {"input": 5,    "output": 25, "cache_write": 10,    "cache_read": 0.50},
+    "opus_old":  {"input": 15,   "output": 75, "cache_write": 18.75, "cache_read": 1.50},
+    "sonnet":    {"input": 3,    "output": 15, "cache_write": 3.75,  "cache_read": 0.30},
+    "haiku":     {"input": 1,    "output": 5,  "cache_write": 1.25,  "cache_read": 0.10},
 }
 
 def get_model_tier(model_name):
     m = model_name.lower()
     if "opus" in m:
-        return "opus"
+        if "4-5" in model_name or "4-6" in model_name:
+            return "opus_new"
+        return "opus_old"
     elif "haiku" in m:
         return "haiku"
     return "sonnet"
