@@ -462,7 +462,61 @@ def main():
     print(f"{rj('Sessions:', sess_s)} | {ROW}")
     print(f"{rj('Tokens:', tok_s)} | {ROW}")
 
-    # ── Subscription: prominent block ──
+    # ── Official usage limits (top-level, most important) ──
+    usage = get_usage()
+    if usage:
+        def _reset_label(reset_str):
+            if not reset_str: return ""
+            try:
+                rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                diff = rt - datetime.now()
+                secs = diff.total_seconds()
+                if secs <= 0: return "now" if not ZH else "即将"
+                hrs = int(secs // 3600); mins = int((secs % 3600) // 60)
+                if hrs > 24: return f"{hrs // 24}d" if not ZH else f"{hrs // 24}天"
+                if hrs > 0: return f"{hrs}h{mins}m" if not ZH else f"{hrs}时{mins}分"
+                return f"{mins}m" if not ZH else f"{mins}分"
+            except: return ""
+
+        def _gauge(pct):
+            """Render a clean gauge: ▰▰▰▰▱▱▱▱▱▱"""
+            p = min(max(pct, 0), 100)
+            filled = round(p / 100 * 10)
+            return "▰" * filled + "▱" * (10 - filled)
+
+        def _color(pct):
+            if pct >= 80: return "#E85838"
+            if pct >= 50: return "#E8A838"
+            return "#4EC9B0"
+
+        def _usage_line(label, obj):
+            if not obj or obj.get("utilization") is None: return
+            p = obj["utilization"]
+            rst = _reset_label(obj.get("resets_at"))
+            rst_s = f"  ↻{rst}" if rst else ""
+            print(f"{label}  {_gauge(p)}  {p:.0f}%{rst_s} | color={_color(p)} size=13 font=Menlo")
+            # Submenu: details
+            if obj.get("resets_at"):
+                try:
+                    rt = datetime.fromisoformat(obj["resets_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+                    if ZH:
+                        print(f"--重置时间：{rt.strftime('%m-%d %H:%M')} | {DIM}")
+                    else:
+                        print(f"--Resets: {rt.strftime('%m-%d %H:%M')} | {DIM}")
+                except: pass
+
+        print("---")
+        _usage_line("5h", usage.get("five_hour"))
+        _usage_line("7d", usage.get("seven_day"))
+        # Extra quotas (show only if present)
+        ss = usage.get("seven_day_sonnet")
+        if ss and ss.get("utilization") is not None:
+            _usage_line("7d Sonnet", ss)
+        so = usage.get("seven_day_opus")
+        if so and so.get("utilization") is not None:
+            _usage_line("7d Opus", so)
+
+    # ── Subscription ROI ──
     sub = CFG.get("subscription", 0)
     if sub > 0:
         lbl = CFG.get("subscription_label", "")
@@ -471,11 +525,9 @@ def main():
         multiplier = tc / sub if sub > 0 else 0
         print("---")
         if ZH:
-            print(f"💰 订阅：{prefix}${sub:.0f}/月 | {ROW}")
-            print(f"💰 已节省：{fc(savings)} ({multiplier:.0f}x 回报) | color=#4EC9B0 size=13 font=Menlo")
+            print(f"💰 {prefix}${sub:.0f}/月 → 已节省 {fc(savings)} ({multiplier:.0f}x) | {SEC}")
         else:
-            print(f"💰 Plan: {prefix}${sub:.0f}/mo | {ROW}")
-            print(f"💰 Saved: {fc(savings)} ({multiplier:.0f}x ROI) | color=#4EC9B0 size=13 font=Menlo")
+            print(f"💰 {prefix}${sub:.0f}/mo → saved {fc(savings)} ({multiplier:.0f}x) | {SEC}")
         # Submenu: details
         if ZH:
             print(f"--等价 API 费用：{fc(tc)} | {ROW2}")
@@ -485,75 +537,9 @@ def main():
             daily_avg = week_total_cost / 7
             monthly_proj = daily_avg * 30
             if ZH:
-                print(f"--日均消耗：{fc(daily_avg)} | {DIM}")
-                print(f"--月度估算：{fc(monthly_proj)} | {DIM}")
+                print(f"--日均：{fc(daily_avg)} · 月估：{fc(monthly_proj)} | {DIM}")
             else:
-                print(f"--Daily avg: {fc(daily_avg)} | {DIM}")
-                print(f"--Monthly est: {fc(monthly_proj)} | {DIM}")
-
-    # ── Official usage limits ──
-    usage = get_usage()
-    if usage:
-        print("---")
-        tier_name = usage.get("_tier", "").replace("default_claude_", "").replace("_", " ").title()
-        if tier_name:
-            title_u = f"📊 Plan 用量 ({tier_name})" if ZH else f"📊 Plan Usage ({tier_name})"
-        else:
-            title_u = "📊 Plan 用量" if ZH else "📊 Plan Usage"
-        print(f"{title_u} | {H2}")
-
-        def usage_bar(pct, label, reset_str):
-            """Render a usage gauge line."""
-            p = min(max(pct, 0), 100)
-            filled = round(p / 100 * 15)
-            b = "█" * filled + "░" * (15 - filled)
-            # Color: green < 50%, yellow 50-80%, red > 80%
-            if p >= 80: color = "#E85838"
-            elif p >= 50: color = "#E8A838"
-            else: color = "#4EC9B0"
-            # Parse reset time
-            reset_label = ""
-            if reset_str:
-                try:
-                    rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    diff = rt - datetime.now()
-                    hrs = int(diff.total_seconds() // 3600)
-                    mins = int((diff.total_seconds() % 3600) // 60)
-                    if hrs > 24:
-                        days = hrs // 24
-                        reset_label = f"{days}d" if not ZH else f"{days}天"
-                    elif hrs > 0:
-                        reset_label = f"{hrs}h{mins}m" if not ZH else f"{hrs}时{mins}分"
-                    else:
-                        reset_label = f"{mins}m" if not ZH else f"{mins}分"
-                    reset_label = f"  ↻{reset_label}"
-                except: pass
-            print(f"--{label} | {ROW2}")
-            print(f"--{b}  {p:.0f}%{reset_label} | color={color} size=12 font=Menlo")
-
-        # 5-hour session window
-        fh = usage.get("five_hour")
-        if fh and fh.get("utilization") is not None:
-            label = "5h 会话窗口" if ZH else "5h Session"
-            usage_bar(fh["utilization"], label, fh.get("resets_at"))
-
-        # 7-day all models
-        sd = usage.get("seven_day")
-        if sd and sd.get("utilization") is not None:
-            label = "7d 全模型" if ZH else "7d All Models"
-            usage_bar(sd["utilization"], label, sd.get("resets_at"))
-
-        # 7-day sonnet (if present)
-        ss = usage.get("seven_day_sonnet")
-        if ss and ss.get("utilization") is not None:
-            label = "7d Sonnet" if ZH else "7d Sonnet"
-            usage_bar(ss["utilization"], label, ss.get("resets_at"))
-
-        # 7-day opus (if present)
-        so = usage.get("seven_day_opus")
-        if so and so.get("utilization") is not None:
-            label = "7d Opus" if ZH else "7d Opus"
-            usage_bar(so["utilization"], label, so.get("resets_at"))
+                print(f"--Daily: {fc(daily_avg)} · Monthly: {fc(monthly_proj)} | {DIM}")
 
     print("---")
 
@@ -587,19 +573,6 @@ def main():
                 short = MODEL_SHORT.get(model, model)
                 pct = data["msgs"] / tm_total * 100
                 print(f"--{short}: {data['msgs']:,} ({pct:.0f}%) {fc(data['cost'])} | {MODL}")
-
-    # ── Rolling windows: 5h / 7d ──
-    w5 = local["window_5h"]; w7 = local["window_7d"]
-    if w5["msgs"] > 0:
-        if ZH:
-            print(f"⏱ 5h 窗口：{fc(w5['cost'])} · {tk(w5['tokens'])} · {w5['msgs']} 条 | {DIM}")
-        else:
-            print(f"⏱ 5h: {fc(w5['cost'])} · {tk(w5['tokens'])} · {w5['msgs']} msgs | {DIM}")
-    if w7["msgs"] > 0:
-        if ZH:
-            print(f"📅 7d 窗口：{fc(w7['cost'])} · {tk(w7['tokens'])} · {w7['msgs']} 条 | {DIM}")
-        else:
-            print(f"📅 7d: {fc(w7['cost'])} · {tk(w7['tokens'])} · {w7['msgs']} msgs | {DIM}")
 
     # ── Machines — top level summary, details in submenu ──
     for m in machines:
