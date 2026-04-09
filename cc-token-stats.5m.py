@@ -787,14 +787,14 @@ def main():
             ("晚上" if ZH else "Eve",  "18–24", range(18, 24)),
             ("凌晨" if ZH else "Late", "00–06", range(0, 6)),
         ]
+        max_block = max(sum(hourly.get(h, 0) for h in hrs) for _, _, hrs in block_defs) or 1
         for label, time_str, hours in block_defs:
             count = sum(hourly.get(h, 0) for h in hours)
             if count == 0: continue
             pct = count / total_hourly * 100
-            peak_h = max(hours, key=lambda h: hourly.get(h, 0))
+            b = bar(count, max_block, 10)
             msgs_u = "条" if ZH else "msgs"
-            peak_u = "峰值" if ZH else "peak"
-            print(f"--{label} {time_str}   {count:>5,} {msgs_u}  {pct:>2.0f}%   {peak_u} {peak_h:02d}:00 | {ROW2}")
+            print(f"--{label} {time_str}  {count:>5,} {msgs_u} {pct:>2.0f}%  {b} | {ROW2}")
 
     # ── Top Projects ──
     projects = dict(local["projects"])
