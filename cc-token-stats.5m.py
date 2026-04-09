@@ -728,18 +728,31 @@ def main():
     # Section header style
     SH = "color=#5CC6A7 size=12" if DARK else "color=#1A5C4C size=12"
 
-    # ── Daily Details (all dates, newest first) ──
+    # ── Daily Details (newest first, max 15 visible, older folded) ──
     all_total_cost = sum(v["cost"] for v in daily.values())
     all_total_msgs = sum(v["msgs"] for v in daily.values())
-    day_count = sum(1 for v in daily.values() if v["msgs"] > 0)
+    active_days = [(d, v) for d, v in reversed(daily_sorted) if v["msgs"] > 0]
+    day_count = len(active_days)
     if ZH:
         print(f"每日明细 ({day_count}天) | {SH}")
     else:
         print(f"Daily Details ({day_count}d) | {SH}")
-    for date, data in reversed(daily_sorted):
+    # Show recent 15
+    for date, data in active_days[:15]:
         dd = date[5:]
-        if data["msgs"] > 0:
-            print(f"--{dd}   {fc(data['cost']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+        print(f"--{dd}   {fc(data['cost']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+    # Older days folded into submenu
+    if len(active_days) > 15:
+        older = active_days[15:]
+        older_cost = sum(v["cost"] for _, v in older)
+        older_msgs = sum(v["msgs"] for _, v in older)
+        if ZH:
+            print(f"--更早 ({len(older)}天) {fc(older_cost)} · {older_msgs} msgs | {DIM}")
+        else:
+            print(f"--Older ({len(older)}d) {fc(older_cost)} · {older_msgs} msgs | {DIM}")
+        for date, data in older:
+            dd = date[5:]
+            print(f"----{dd}   {fc(data['cost']):>8}   {data['msgs']:>5} msgs | {ROW2}")
     print("-----")
     total_label = "合计" if ZH else "Total"
     print(f"--{total_label}   {fc(all_total_cost):>8}   {all_total_msgs:>5} msgs | {DIM}")
@@ -756,8 +769,6 @@ def main():
     if hourly:
         print(f"{'活跃时段' if ZH else 'Active Hours'} | {SH}")
         total_hourly = max(sum(hourly.values()), 1)
-        max_block = 1
-        blocks = []
         block_defs = [
             ("早上" if ZH else "AM",   "06–12", range(6, 12)),
             ("下午" if ZH else "PM",   "12–18", range(12, 18)),
@@ -766,16 +777,12 @@ def main():
         ]
         for label, time_str, hours in block_defs:
             count = sum(hourly.get(h, 0) for h in hours)
-            peak_h = max(hours, key=lambda h: hourly.get(h, 0))
-            peak_v = hourly.get(peak_h, 0)
-            blocks.append((label, time_str, count, peak_h, peak_v))
-            if count > max_block: max_block = count
-        for label, time_str, count, peak_h, peak_v in blocks:
             if count == 0: continue
             pct = count / total_hourly * 100
-            b = bar(count, max_block, 8)
-            peak_str = f"peak {peak_h:02d}:00" if not ZH else f"峰值 {peak_h:02d}:00"
-            print(f"--{label} {time_str}  {count:>5,} ({pct:>2.0f}%)  {b}  {peak_str} | {ROW2}")
+            peak_h = max(hours, key=lambda h: hourly.get(h, 0))
+            msgs_u = "条" if ZH else "msgs"
+            peak_u = "峰值" if ZH else "peak"
+            print(f"--{label} {time_str}   {count:>5,} {msgs_u}  {pct:>2.0f}%   {peak_u} {peak_h:02d}:00 | {ROW2}")
 
     # ── Top Projects ──
     projects = dict(local["projects"])
