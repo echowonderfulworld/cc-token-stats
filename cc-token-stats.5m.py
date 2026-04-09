@@ -6,8 +6,8 @@
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 """
-cc-pulse — Claude Code usage dashboard in your menu bar.
-https://github.com/echowonderfulworld/cc-pulse
+cc-token-status — Claude Code usage dashboard in your menu bar.
+https://github.com/echowonderfulworld/cc-token-status
 """
 
 import json, os, glob, socket, subprocess

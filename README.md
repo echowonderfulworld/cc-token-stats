@@ -1,21 +1,22 @@
-# cc-pulse
+# cc-token-status
 
 **Claude Code usage dashboard in your macOS menu bar.**
 
-One click to see costs, tokens, trends, model breakdown, and multi-machine sync — all in SwiftBar nested menus. No app to install, no server to run, just a single Python script.
+One click to see costs, tokens, plan limits, trends, and multi-machine sync — all in SwiftBar nested menus. No app to install, no server to run, just a single Python script.
 
 <p align="center">
-  <img src=".github/screenshot.png" width="360" alt="cc-pulse screenshot" />
+  <img src=".github/screenshot.png" width="360" alt="cc-token-status screenshot" />
 </p>
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **Cost & Token Overview** | API-equivalent cost, session count, total tokens — right in the menu bar |
-| **Subscription ROI** | See how much your Pro/Max/Team plan saves vs API pricing |
+| **Cost & Token Overview** | API-equivalent cost, session count, total tokens — always visible |
+| **Plan Usage Limits** | Official 5h session & 7d weekly quotas with live progress bars |
+| **Subscription ROI** | How much your Pro/Max/Team plan saves vs API pricing |
 | **Today at a Glance** | Today's spending, tokens, and message count |
-| **7-Day Trend** | Daily cost bar chart with drill-down |
+| **7-Day Trend** | Daily cost bar chart with drill-down details |
 | **Model Breakdown** | Per-model usage (Opus / Sonnet / Haiku) with percentages |
 | **Hourly Heatmap** | When are you most active? Morning, afternoon, evening, night |
 | **Project Ranking** | Which projects consume the most tokens |
@@ -25,7 +26,7 @@ One click to see costs, tokens, trends, model breakdown, and multi-machine sync 
 ## Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-pulse/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main/install.sh | bash
 ```
 
 The installer will:
@@ -35,9 +36,22 @@ The installer will:
 4. Ask your subscription tier (for ROI calculation)
 5. Enable iCloud sync if available
 
+## Plan Usage Limits
+
+cc-token-status reads your Claude Code OAuth token from the macOS Keychain and queries the official Anthropic API to show real-time plan usage:
+
+```
+Session ▰▰▱▱▱▱▱▱▱▱  14%  ↻3h42m
+Weekly  ▰▰▰▰▰▰▱▱▱▱  64%  ↻4d
+Sonnet  ▱▱▱▱▱▱▱▱▱▱   1%  ↻5d
+```
+
+- Color-coded: 🟢 <50% · 🟡 50–80% · 🔴 >80%
+- Cached locally (4 min TTL) to respect API rate limits
+
 ## Pricing
 
-cc-pulse calculates API-equivalent costs using official Anthropic pricing:
+cc-token-status calculates API-equivalent costs using official Anthropic pricing:
 
 | Model | Input | Output | Cache Write | Cache Read |
 |-------|-------|--------|-------------|------------|
@@ -74,9 +88,9 @@ Edit `~/.config/cc-token-stats/config.json`:
 
 ## Multi-Machine Sync
 
-If you use Claude Code on multiple Macs with iCloud Drive, cc-pulse automatically syncs usage data across machines — no setup required.
+If you use Claude Code on multiple Macs with iCloud Drive, cc-token-status automatically syncs usage data across machines — no setup required.
 
-Each machine writes its stats to `~/Library/Mobile Documents/com~apple~CloudDocs/cc-token-stats/machines/<hostname>/`. The plugin reads all machines and shows a combined view with per-machine breakdown.
+Each machine writes its stats to iCloud. The plugin reads all machines and shows a combined view with per-machine breakdown.
 
 ## Requirements
 

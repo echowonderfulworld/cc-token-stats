@@ -1,12 +1,12 @@
 #!/bin/bash
-# cc-pulse installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-pulse/main/install.sh | bash
+# cc-token-status installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main/install.sh | bash
 set -euo pipefail
 
-REPO="https://raw.githubusercontent.com/echowonderfulworld/cc-pulse/main"
+REPO="https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main"
 PLUGIN_NAME="cc-token-stats.5m.py"
 
-echo "cc-pulse installer"
+echo "cc-token-status installer"
 echo ""
 
 # ─── 1. Check Claude Code ───
@@ -125,8 +125,8 @@ if ! pgrep -q SwiftBar; then
 fi
 
 echo ""
-echo "Done! cc-pulse is now in your menu bar."
+echo "Done! cc-token-status is now in your menu bar."
 echo ""
 echo "   Config: $CONFIG_FILE"
 echo "   Plugin: $PLUGIN_DIR/$PLUGIN_NAME"
-echo "   Repo:   https://github.com/echowonderfulworld/cc-pulse"
+echo "   Repo:   https://github.com/echowonderfulworld/cc-token-status"
