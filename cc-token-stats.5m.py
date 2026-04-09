@@ -401,18 +401,19 @@ if DARK:
     BAR  = "color=#4EC9B0 size=11 font=Menlo"
     WARN = "color=#E8A838 size=12"
 else:
-    H1   = "color=#0E7A62 size=14"
-    H2   = "color=#0E7A62 size=13"
-    ROW  = "color=#2D2D2D size=13 font=Menlo"
-    ROW2 = "color=#2D2D2D size=12 font=Menlo"
-    DIM  = "color=#6B6560 size=11 font=Menlo"
-    DIM2 = "color=#6B6560 size=10 font=Menlo"
-    META = "color=#9B9080 size=10"
-    SEC  = "color=#2870A0 size=13"
-    SEC2 = "color=#2870A0 size=12"
-    MODL = "color=#5A5550 size=12 font=Menlo"
-    BAR  = "color=#0E7A62 size=11 font=Menlo"
-    WARN = "color=#C07820 size=12"
+    # Light mode: high contrast on white/light gray background
+    H1   = "color=#0B6B50 size=14"          # deep teal
+    H2   = "color=#0B6B50 size=13"
+    ROW  = "color=#1A1A1A size=13 font=Menlo"  # near-black
+    ROW2 = "color=#1A1A1A size=12 font=Menlo"
+    DIM  = "color=#4A4A4A size=11 font=Menlo"  # dark gray
+    DIM2 = "color=#4A4A4A size=10 font=Menlo"
+    META = "color=#6A6A6A size=10"             # medium gray (footer)
+    SEC  = "color=#1B5E8A size=13"             # strong blue
+    SEC2 = "color=#1B5E8A size=12"
+    MODL = "color=#3A3A3A size=12 font=Menlo"  # dark
+    BAR  = "color=#0B6B50 size=11 font=Menlo"  # deep teal
+    WARN = "color=#B86E1A size=12"             # dark amber
 
 def main():
     local = scan()
@@ -519,7 +520,7 @@ def main():
         if DARK:
             LINE_COLORS = ["#4EC9B0", "#7AAFCF", "#E0D8C8", "#E8A838"]
         else:
-            LINE_COLORS = ["#0E7A62", "#2870A0", "#5A5550", "#C07820"]
+            LINE_COLORS = ["#0B6B50", "#1B5E8A", "#3A3A3A", "#B86E1A"]
         _color_idx = [0]
 
         def _danger_color(pct):
