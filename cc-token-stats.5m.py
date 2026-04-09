@@ -123,7 +123,8 @@ def bar(val, maxval, width=12):
     """Render a mini bar chart using block characters."""
     if maxval <= 0: return " " * width
     filled = round(val / maxval * width)
-    return "█" * filled + "░" * (width - filled)
+    empty = "░" if DARK else "▁"
+    return "█" * filled + empty * (width - filled)
 
 # ─── Usage API (official rate limits) ────────────────────────────
 
@@ -401,18 +402,18 @@ if DARK:
     BAR  = "color=#4EC9B0 size=11 font=Menlo"
     WARN = "color=#E8A838 size=12"
 else:
-    # Light mode: translucent panel — all text must be dark, hierarchy via size
+    # Light mode: translucent frosted panel — must be dark + larger
     H1   = "color=#0B6B50 size=14"
     H2   = "color=#0B6B50 size=13"
-    ROW  = "color=#111111 size=13 font=Menlo"
-    ROW2 = "color=#111111 size=12 font=Menlo"
-    DIM  = "color=#222222 size=11 font=Menlo"
-    DIM2 = "color=#222222 size=10 font=Menlo"
-    META = "color=#333333 size=10"
+    ROW  = "color=#000000 size=13 font=Menlo"
+    ROW2 = "color=#000000 size=12 font=Menlo"
+    DIM  = "color=#111111 size=12 font=Menlo"     # was 11pt, bumped to 12
+    DIM2 = "color=#111111 size=11 font=Menlo"     # was 10pt, bumped to 11
+    META = "color=#222222 size=11"                 # was 10pt, bumped to 11
     SEC  = "color=#14507A size=13"
     SEC2 = "color=#14507A size=12"
-    MODL = "color=#222222 size=12 font=Menlo"
-    BAR  = "color=#0B6B50 size=11 font=Menlo"
+    MODL = "color=#111111 size=12 font=Menlo"
+    BAR  = "color=#0B6B50 size=12 font=Menlo"     # was 11pt, bumped to 12
     WARN = "color=#A05A10 size=12"
 
 def main():
@@ -662,7 +663,8 @@ def main():
             print(f"--{dd}  {fc(data['cost']):>8}  {b} | {ROW2}")
             print(f"----{tk(data['tokens'])} tokens · {data['msgs']} msgs | {DIM}")
         else:
-            print(f"--{dd}  {'—':>8}  {'░' * 10} | {DIM}")
+            empty_bar = '░' * 10 if DARK else '▁' * 10
+            print(f"--{dd}  {'—':>8}  {empty_bar} | {DIM}")
     print("-----")
     if ZH:
         print(f"--合计: {fc(week_total_cost)} · {week_total_msgs} 条 | {DIM}")
@@ -701,9 +703,9 @@ def main():
             cells = ""
             for h in hours:
                 c = hourly.get(h, 0)
-                if c == 0: cells += "░"
-                elif c < max_h * 0.25: cells += "▒"
-                elif c < max_h * 0.6: cells += "▓"
+                if c == 0: cells += "░" if DARK else "▁"
+                elif c < max_h * 0.25: cells += "▒" if DARK else "▃"
+                elif c < max_h * 0.6: cells += "▓" if DARK else "▅"
                 else: cells += "█"
             msgs_label = "条" if ZH else "msgs"
             print(f"--{label}  {cells}  {block_count} {msgs_label} | {ROW2}")
