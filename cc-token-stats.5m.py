@@ -45,7 +45,9 @@ def load_config():
     if cfg["language"] == "auto":
         try:
             out = subprocess.check_output(["defaults","read",".GlobalPreferences","AppleLanguages"], stderr=subprocess.DEVNULL, text=True)
-            cfg["language"] = "zh" if "zh" in out.lower() else "en"
+            # Parse first language from plist array: ( "en-CN", "zh-Hans-CN" )
+            langs = [l.strip().strip('"').strip('",') for l in out.split("\n") if l.strip() and l.strip() not in ("(", ")")]
+            cfg["language"] = "zh" if langs and langs[0].startswith("zh") else "en"
         except: cfg["language"] = "en"
     return cfg
 
