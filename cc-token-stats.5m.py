@@ -893,24 +893,51 @@ def main():
 
     # ═══ SETTINGS ═══
     print("---")
+
+    # Helper script path
+    helper = str(Path.home() / ".config" / "cc-token-stats" / ".toggle.sh")
+
+    # Notification toggle
     notify_on = CFG.get("notifications", True)
-    notify_icon = "✓" if notify_on else "✗"
+    notify_icon = "✓ " if notify_on else "  "
     notify_label = f"{notify_icon} {'通知提醒' if ZH else 'Notifications'}"
-    # Toggle: write config with flipped value
-    toggle_val = "false" if notify_on else "true"
-    notify_cmd = f"""python3 -c "import json,pathlib; p=pathlib.Path('{CONFIG_FILE}'); c=json.loads(p.read_text()); c['notifications']={toggle_val}; p.write_text(json.dumps(c,indent=2))" """
-    print(f"{notify_label} | bash='bash' param1='-c' param2={repr(notify_cmd)} terminal=false refresh=true")
+    toggle_val = "False" if notify_on else "True"  # Python bool, not JSON
+    # Write a tiny helper script for SwiftBar to execute
+    try:
+        Path(helper).parent.mkdir(parents=True, exist_ok=True)
+        Path(helper).write_text(f"""#!/bin/bash
+case "$1" in
+  notify)
+    python3 -c "
+import json, pathlib
+p = pathlib.Path('{CONFIG_FILE}')
+c = json.loads(p.read_text())
+c['notifications'] = {toggle_val}
+p.write_text(json.dumps(c, indent=2))
+"
+    ;;
+  login-add)
+    osascript -e 'tell application "System Events" to make login item at end with properties {{path:"/Applications/SwiftBar.app", hidden:false}}'
+    ;;
+  login-remove)
+    osascript -e 'tell application "System Events" to delete login item "SwiftBar"'
+    ;;
+esac
+""")
+        os.chmod(helper, 0o755)
+    except: pass
+
+    print(f"{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
 
     # Launch at login toggle
-    plist_path = Path.home() / "Library" / "LaunchAgents" / "com.ameba.SwiftBar.plist"
-    login_on = plist_path.is_file() or subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'], capture_output=True, text=True).stdout.find("SwiftBar") >= 0
-    login_icon = "✓" if login_on else "✗"
+    try:
+        login_items = subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'], capture_output=True, text=True, timeout=5).stdout
+        login_on = "SwiftBar" in login_items
+    except: login_on = False
+    login_icon = "✓ " if login_on else "  "
     login_label = f"{login_icon} {'开机自启' if ZH else 'Launch at Login'}"
-    if login_on:
-        login_cmd = "osascript -e 'tell application \"System Events\" to delete login item \"SwiftBar\"'"
-    else:
-        login_cmd = "osascript -e 'tell application \"System Events\" to make login item at end with properties {path:\"/Applications/SwiftBar.app\", hidden:false}'"
-    print(f"{login_label} | bash='bash' param1='-c' param2={repr(login_cmd)} terminal=false refresh=true")
+    login_action = "login-remove" if login_on else "login-add"
+    print(f"{login_label} | bash={helper} param1={login_action} terminal=false refresh=true")
 
     print("---")
     print("Refresh | refresh=true")
