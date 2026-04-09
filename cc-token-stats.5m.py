@@ -460,8 +460,8 @@ if DARK:
     WARN = "color=#E8A838 size=12"                 # amber — warnings
 else:
     # ── Light mode: dark saturated tones (avoid pure gray → SwiftBar makes it transparent) ──
-    H1   = "color=#0D7058 size=14"                # deep teal — title
-    H2   = "color=#0D7058 size=13"
+    H1   = "color=#1A5C4C size=14"                # rich dark teal — title
+    H2   = "color=#1A5C4C size=13"
     ROW  = "color=#1C2030 size=13 font=Menlo"     # dark navy — primary data (reads as near-black)
     ROW2 = "color=#1C2030 size=12 font=Menlo"
     DIM  = "color=#2C3040 size=12 font=Menlo"     # navy — secondary info
@@ -470,7 +470,7 @@ else:
     SEC  = "color=#1B5A85 size=13"                 # deep blue — interactive items
     SEC2 = "color=#1B5A85 size=12"
     MODL = "color=#2C3040 size=12 font=Menlo"     # navy — model details
-    BAR  = "color=#0D7058 size=12 font=Menlo"     # deep teal — bar charts
+    BAR  = "color=#1A5C4C size=12 font=Menlo"     # rich dark teal — bar charts
     WARN = "color=#B86E1A size=12"                 # dark amber — warnings
 
 def main():
@@ -579,7 +579,7 @@ def main():
         if DARK:
             LINE_COLORS = ["#5CC6A7", "#E8A838", "#6BA4C9", "#D4CDC0"]   # teal, amber, blue, warm white
         else:
-            LINE_COLORS = ["#0D7058", "#B86E1A", "#1B5A85", "#2C3040"]   # deep teal, dark amber, deep blue, navy
+            LINE_COLORS = ["#1A5C4C", "#B86E1A", "#1B5A85", "#2C3040"]   # rich teal, dark amber, deep blue, navy
         _color_idx = [0]
 
         def _danger_color(pct):
@@ -628,9 +628,11 @@ def main():
         multiplier = tc / sub if sub > 0 else 0
         print("---")
         if ZH:
-            print(f"💰 {prefix}${sub:.0f}/月 → 已节省 {fc(savings)} ({multiplier:.0f}x) | {H2}")
+            GOLD = "color=#D4A04A size=13" if DARK else "color=#8B6914 size=13"
+            print(f"💰 {prefix}${sub:.0f}/月 → 已节省 {fc(savings)} ({multiplier:.0f}x) | {GOLD}")
         else:
-            print(f"💰 {prefix}${sub:.0f}/mo → saved {fc(savings)} ({multiplier:.0f}x) | {H2}")
+            GOLD = "color=#D4A04A size=13" if DARK else "color=#8B6914 size=13"
+            print(f"💰 {prefix}${sub:.0f}/mo → saved {fc(savings)} ({multiplier:.0f}x) | {GOLD}")
         # Submenu: details
         if ZH:
             print(f"--等价 API 费用：{fc(tc)} | {ROW2}")
