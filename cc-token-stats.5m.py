@@ -532,13 +532,7 @@ def main():
     # ─── Menu bar line ───
     usage = get_usage()
 
-    # Detect if Claude Code is running
-    try:
-        _cc_running = subprocess.run(["pgrep", "-f", "claude-code"], capture_output=True, timeout=3).returncode == 0
-    except: _cc_running = False
-    icon = "sfSymbol=bolt.circle.fill" if _cc_running else "sfSymbol=circle.dashed"
-
-    # Get both limits
+    # Get limits for panel display
     _5h_util = 0; _7d_util = 0
     if usage:
         _fh = usage.get("five_hour")
@@ -546,14 +540,7 @@ def main():
         _sd = usage.get("seven_day")
         if _sd and _sd.get("utilization") is not None: _7d_util = _sd["utilization"]
 
-    # Minimal: just "CC" + icon + color = status at a glance
-    _max_util = max(_5h_util, _7d_util)
-    if _max_util >= 80:
-        print(f"CC | {icon} color=#E85838")       # red = danger
-    elif _max_util >= 60:
-        print(f"CC | {icon} color=#E8A838")       # amber = caution
-    else:
-        print(f"CC | {icon}")
+    print("CC")
     print("---")
 
     # ═══════════════════════════════════════════════════════════════
