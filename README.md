@@ -5,9 +5,7 @@
 One click to see costs, tokens, plan limits, trends, and multi-machine sync — all in SwiftBar nested menus. No app to install, no server to run, just a single Python script.
 
 <p align="center">
-  <img src=".github/screenshot-zh.png" width="300" alt="中文 · Dark Mode" />
-  &nbsp;&nbsp;
-  <img src=".github/screenshot-en.png" width="300" alt="English · Dark Mode" />
+  <img src=".github/screenshot-en.png" width="360" alt="cc-token-status screenshot" />
 </p>
 
 ## Features
