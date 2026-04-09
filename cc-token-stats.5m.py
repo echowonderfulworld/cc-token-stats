@@ -401,19 +401,19 @@ if DARK:
     BAR  = "color=#4EC9B0 size=11 font=Menlo"
     WARN = "color=#E8A838 size=12"
 else:
-    # Light mode: high contrast on white/light gray background
-    H1   = "color=#0B6B50 size=14"          # deep teal
+    # Light mode: translucent panel — all text must be dark, hierarchy via size
+    H1   = "color=#0B6B50 size=14"
     H2   = "color=#0B6B50 size=13"
-    ROW  = "color=#1A1A1A size=13 font=Menlo"  # near-black
-    ROW2 = "color=#1A1A1A size=12 font=Menlo"
-    DIM  = "color=#4A4A4A size=11 font=Menlo"  # dark gray
-    DIM2 = "color=#4A4A4A size=10 font=Menlo"
-    META = "color=#6A6A6A size=10"             # medium gray (footer)
-    SEC  = "color=#1B5E8A size=13"             # strong blue
-    SEC2 = "color=#1B5E8A size=12"
-    MODL = "color=#3A3A3A size=12 font=Menlo"  # dark
-    BAR  = "color=#0B6B50 size=11 font=Menlo"  # deep teal
-    WARN = "color=#B86E1A size=12"             # dark amber
+    ROW  = "color=#111111 size=13 font=Menlo"
+    ROW2 = "color=#111111 size=12 font=Menlo"
+    DIM  = "color=#222222 size=11 font=Menlo"
+    DIM2 = "color=#222222 size=10 font=Menlo"
+    META = "color=#333333 size=10"
+    SEC  = "color=#14507A size=13"
+    SEC2 = "color=#14507A size=12"
+    MODL = "color=#222222 size=12 font=Menlo"
+    BAR  = "color=#0B6B50 size=11 font=Menlo"
+    WARN = "color=#A05A10 size=12"
 
 def main():
     local = scan()
