@@ -468,18 +468,26 @@ def main():
         def _reset_label(reset_str):
             if not reset_str: return ""
             try:
-                rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                diff = rt - datetime.now()
+                # Parse as timezone-aware, convert to local
+                rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00"))
+                now_aware = datetime.now().astimezone()
+                diff = rt - now_aware
                 secs = diff.total_seconds()
                 if secs <= 0: return "now" if not ZH else "即将"
                 hrs = int(secs // 3600); mins = int((secs % 3600) // 60)
-                if hrs > 24: return f"{hrs // 24}d" if not ZH else f"{hrs // 24}天"
+                if hrs >= 48: return f"{hrs // 24}d" if not ZH else f"{hrs // 24}天"
+                if hrs >= 24: return f"1d{hrs-24}h" if not ZH else f"1天{hrs-24}时"
                 if hrs > 0: return f"{hrs}h{mins}m" if not ZH else f"{hrs}时{mins}分"
                 return f"{mins}m" if not ZH else f"{mins}分"
             except: return ""
 
+        def _reset_time_local(reset_str):
+            try:
+                rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00"))
+                return rt.astimezone().strftime("%m-%d %H:%M")
+            except: return ""
+
         def _gauge(pct):
-            """Render a clean gauge: ▰▰▰▰▱▱▱▱▱▱"""
             p = min(max(pct, 0), 100)
             filled = round(p / 100 * 10)
             return "▰" * filled + "▱" * (10 - filled)
@@ -489,32 +497,32 @@ def main():
             if pct >= 50: return "#E8A838"
             return "#4EC9B0"
 
+        # Labels: fixed 8-char width so gauges align
+        LW = 8
         def _usage_line(label, obj):
             if not obj or obj.get("utilization") is None: return
             p = obj["utilization"]
             rst = _reset_label(obj.get("resets_at"))
             rst_s = f"  ↻{rst}" if rst else ""
-            print(f"{label}  {_gauge(p)}  {p:.0f}%{rst_s} | color={_color(p)} size=13 font=Menlo")
-            # Submenu: details
-            if obj.get("resets_at"):
-                try:
-                    rt = datetime.fromisoformat(obj["resets_at"].replace("Z", "+00:00")).replace(tzinfo=None)
-                    if ZH:
-                        print(f"--重置时间：{rt.strftime('%m-%d %H:%M')} | {DIM}")
-                    else:
-                        print(f"--Resets: {rt.strftime('%m-%d %H:%M')} | {DIM}")
-                except: pass
+            padded = f"{label:<{LW}}"
+            print(f"{padded}{_gauge(p)}  {p:.0f}%{rst_s} | color={_color(p)} size=13 font=Menlo")
+            # Submenu: reset time
+            rt_local = _reset_time_local(obj.get("resets_at", ""))
+            if rt_local:
+                if ZH:
+                    print(f"--重置：{rt_local} | {DIM}")
+                else:
+                    print(f"--Resets: {rt_local} | {DIM}")
 
         print("---")
-        _usage_line("5h", usage.get("five_hour"))
-        _usage_line("7d", usage.get("seven_day"))
-        # Extra quotas (show only if present)
+        _usage_line("Session", usage.get("five_hour"))
+        _usage_line("Weekly ", usage.get("seven_day"))
         ss = usage.get("seven_day_sonnet")
         if ss and ss.get("utilization") is not None:
-            _usage_line("7d Sonnet", ss)
+            _usage_line("Sonnet ", ss)
         so = usage.get("seven_day_opus")
         if so and so.get("utilization") is not None:
-            _usage_line("7d Opus", so)
+            _usage_line("Opus   ", so)
 
     # ── Subscription ROI ──
     sub = CFG.get("subscription", 0)
