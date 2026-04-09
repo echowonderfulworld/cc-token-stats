@@ -576,7 +576,7 @@ def main():
         if DARK:
             LINE_COLORS = ["#4EC9B0", "#7AAFCF", "#E0D8C8", "#E8A838"]
         else:
-            LINE_COLORS = ["#0B6B50", "#14507A", None, "#A05A10"]  # None = system default
+            LINE_COLORS = ["#0B6B50", "#B86E1A", "#14507A", "#A05A10"]
         _color_idx = [0]
 
         def _danger_color(pct):
