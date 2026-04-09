@@ -633,8 +633,8 @@ def main():
             gauge_lines.append((line, col, rt_local))
 
         if gauge_lines:
-            # Pad to match key numbers width (W) for right-edge alignment
-            max_len = max(W, max(len(t) for t, _, _ in gauge_lines))
+            # Pad only to longest gauge line (NOT to W — that adds too much trailing space)
+            max_len = max(len(t) for t, _, _ in gauge_lines)
             print("---")
             for text, col, rt_local in gauge_lines:
                 padded = text.ljust(max_len)
@@ -781,20 +781,28 @@ def main():
     if hourly:
         print(f"{'活跃时段' if ZH else 'Active Hours'} | {SH}")
         total_hourly = max(sum(hourly.values()), 1)
+        max_h = max(hourly.values()) if hourly else 1
+        # Spark bars: ▁▂▃▄▅▆▇█ — each char = 1 hour, height = relative activity
+        sparks = " ▁▂▃▄▅▆▇█"
+        def spark(h):
+            v = hourly.get(h, 0)
+            if v == 0: return "▁"
+            level = min(int(v / max_h * 8) + 1, 8)
+            return sparks[level]
+
         block_defs = [
             ("早上" if ZH else "AM",   "06–12", range(6, 12)),
             ("下午" if ZH else "PM",   "12–18", range(12, 18)),
             ("晚上" if ZH else "Eve",  "18–24", range(18, 24)),
             ("凌晨" if ZH else "Late", "00–06", range(0, 6)),
         ]
-        max_block = max(sum(hourly.get(h, 0) for h in hrs) for _, _, hrs in block_defs) or 1
         for label, time_str, hours in block_defs:
             count = sum(hourly.get(h, 0) for h in hours)
             if count == 0: continue
             pct = count / total_hourly * 100
-            b = bar(count, max_block, 10)
+            sparkline = "".join(spark(h) for h in hours)
             msgs_u = "条" if ZH else "msgs"
-            print(f"--{label} {time_str}  {count:>5,} {msgs_u} {pct:>2.0f}%  {b} | {ROW2}")
+            print(f"--{label} {time_str}  {sparkline}  {count:>5,} {msgs_u} {pct:>2.0f}% | {ROW2}")
 
     # ── Top Projects ──
     projects = dict(local["projects"])
