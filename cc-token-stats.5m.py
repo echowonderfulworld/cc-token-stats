@@ -940,25 +940,6 @@ esac
 
     print(f"{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
 
-    # Subscription plan selector
-    cur_sub = CFG.get("subscription", 0)
-    cur_label = CFG.get("subscription_label", "")
-    plans = [
-        ("Pro", 20),
-        ("Max 5x", 100),
-        ("Max 20x", 200),
-        ("Team", 30),
-        ("API / None", 0),
-    ]
-    plan_title = "订阅方案" if ZH else "Subscription"
-    # Show current plan in title
-    cur_name = next((name for name, price in plans if price == cur_sub), f"${cur_sub}")
-    print(f"{'  '}{plan_title}: {cur_name} | size=13")
-    for name, price in plans:
-        check = "✓ " if price == cur_sub else "  "
-        label_short = name.split(" ")[0] if " " in name else name  # "Max" for config
-        print(f"--{check}{name} (${price}/mo) | bash={helper} param1=sub param2={price} param3={label_short} terminal=false refresh=true")
-
     # Launch at login toggle
     try:
         login_items = subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'], capture_output=True, text=True, timeout=5).stdout
@@ -968,6 +949,17 @@ esac
     login_label = f"{login_icon} {'开机自启' if ZH else 'Launch at Login'}"
     login_action = "login-remove" if login_on else "login-add"
     print(f"{login_label} | bash={helper} param1={login_action} terminal=false refresh=true")
+
+    # Subscription plan selector
+    cur_sub = CFG.get("subscription", 0)
+    plans = [("Pro", 20), ("Max 5x", 100), ("Max 20x", 200), ("Team", 30), ("API / None", 0)]
+    plan_title = "订阅方案" if ZH else "Subscription"
+    cur_name = next((name for name, price in plans if price == cur_sub), f"${cur_sub}")
+    print(f"{'  '}{plan_title}: {cur_name} | size=13")
+    for name, price in plans:
+        check = "✓ " if price == cur_sub else "  "
+        label_short = name.split(" ")[0] if " " in name else name
+        print(f"--{check}{name} (${price}/mo) | bash={helper} param1=sub param2={price} param3={label_short} terminal=false refresh=true")
 
     print("---")
     print("Refresh | refresh=true")
