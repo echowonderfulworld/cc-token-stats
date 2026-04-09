@@ -922,12 +922,42 @@ p.write_text(json.dumps(c, indent=2))
   login-remove)
     osascript -e 'tell application "System Events" to delete login item "SwiftBar"'
     ;;
+  sub)
+    # $2=price $3=label
+    python3 -c "
+import json, pathlib
+p = pathlib.Path('{CONFIG_FILE}')
+c = json.loads(p.read_text())
+c['subscription'] = int('$2')
+c['subscription_label'] = '$3'
+p.write_text(json.dumps(c, indent=2))
+"
+    ;;
 esac
 """)
         os.chmod(helper, 0o755)
     except: pass
 
     print(f"{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
+
+    # Subscription plan selector
+    cur_sub = CFG.get("subscription", 0)
+    cur_label = CFG.get("subscription_label", "")
+    plans = [
+        ("Pro", 20),
+        ("Max 5x", 100),
+        ("Max 20x", 200),
+        ("Team", 30),
+        ("API / None", 0),
+    ]
+    plan_title = "订阅方案" if ZH else "Subscription"
+    # Show current plan in title
+    cur_name = next((name for name, price in plans if price == cur_sub), f"${cur_sub}")
+    print(f"{'  '}{plan_title}: {cur_name} | size=13")
+    for name, price in plans:
+        check = "✓ " if price == cur_sub else "  "
+        label_short = name.split(" ")[0] if " " in name else name  # "Max" for config
+        print(f"--{check}{name} (${price}/mo) | bash={helper} param1=sub param2={price} param3={label_short} terminal=false refresh=true")
 
     # Launch at login toggle
     try:
