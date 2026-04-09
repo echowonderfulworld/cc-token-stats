@@ -10,6 +10,9 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/echowonderfulworld/cc-token-status
 """
 
+VERSION = "2.1.0"
+REPO_URL = "https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main"
+
 import json, os, glob, socket, subprocess
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -125,6 +128,56 @@ def bar(val, maxval, width=12):
     filled = round(val / maxval * width)
     empty = "░" if DARK else "▁"
     return "█" * filled + empty * (width - filled)
+
+# ─── Auto-update (once per day, silent) ──────────────────────────
+
+UPDATE_CHECK_FILE = Path.home() / ".config" / "cc-token-stats" / ".last_update_check"
+
+def auto_update():
+    """Check for updates once per day. Downloads new version silently."""
+    try:
+        # Check at most once per day
+        if UPDATE_CHECK_FILE.is_file():
+            last = float(UPDATE_CHECK_FILE.read_text().strip())
+            if datetime.now().timestamp() - last < 86400:  # 24h
+                return
+    except: pass
+
+    try:
+        import urllib.request
+        # Fetch remote version line
+        req = urllib.request.Request(f"{REPO_URL}/cc-token-stats.5m.py",
+                                     headers={"Range": "bytes=0-500"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            head = resp.read(500).decode("utf-8", errors="ignore")
+        # Parse VERSION from remote
+        for line in head.splitlines():
+            if line.startswith("VERSION"):
+                remote_ver = line.split('"')[1]
+                if remote_ver != VERSION:
+                    # Download full file
+                    plugin_path = None
+                    try:
+                        plugin_dir = subprocess.run(
+                            ["defaults", "read", "com.ameba.SwiftBar", "PluginDirectory"],
+                            capture_output=True, text=True, timeout=3
+                        ).stdout.strip()
+                        if plugin_dir:
+                            plugin_path = os.path.join(plugin_dir, "cc-token-stats.5m.py")
+                    except: pass
+                    if not plugin_path:
+                        plugin_path = os.path.join(
+                            str(Path.home()), "Library", "Application Support",
+                            "SwiftBar", "plugins", "cc-token-stats.5m.py")
+
+                    urllib.request.urlretrieve(f"{REPO_URL}/cc-token-stats.5m.py", plugin_path)
+                    os.chmod(plugin_path, 0o755)
+                break
+
+        # Record check time
+        UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        UPDATE_CHECK_FILE.write_text(str(datetime.now().timestamp()))
+    except: pass
 
 # ─── Usage API (official rate limits) ────────────────────────────
 
@@ -417,6 +470,7 @@ else:
     WARN = "color=#A05A10 size=12"
 
 def main():
+    auto_update()
     local = scan()
     save_sync(local)
     remotes = load_remotes()

@@ -1,49 +1,60 @@
 #!/bin/bash
-# cc-token-status installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main/install.sh | bash
+# cc-token-status installer & updater
+# Install: curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main/install.sh | bash
+# Update:  curl -fsSL https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main/install.sh | bash -s -- --update
 set -euo pipefail
 
 REPO="https://raw.githubusercontent.com/echowonderfulworld/cc-token-status/main"
 PLUGIN_NAME="cc-token-stats.5m.py"
+VERSION="2.1.0"
+UPDATE_MODE=false
 
-echo "cc-token-status installer"
+# Parse args
+for arg in "$@"; do
+    case "$arg" in
+        --update|-u) UPDATE_MODE=true ;;
+    esac
+done
+
+if $UPDATE_MODE; then
+    echo "cc-token-status updater v${VERSION}"
+else
+    echo "cc-token-status installer v${VERSION}"
+fi
 echo ""
 
 # ─── 1. Check Claude Code ───
 CLAUDE_DIR="$HOME/.claude"
 if [ ! -d "$CLAUDE_DIR" ]; then
-    echo "Claude Code config not found at $CLAUDE_DIR"
-    echo "   Install Claude Code first: https://claude.ai/download"
+    echo "⚠ Claude Code not found at $CLAUDE_DIR"
+    echo "  Install: https://claude.ai/download"
     echo ""
-    if (echo -n < /dev/tty) 2>/dev/null; then
-        read -p "Continue anyway? (y/N) " -n 1 -r < /dev/tty
-    else
-        REPLY="y"
+    if ! $UPDATE_MODE; then
+        if (echo -n < /dev/tty) 2>/dev/null; then
+            read -p "Continue anyway? (y/N) " -n 1 -r < /dev/tty
+        else
+            REPLY="y"
+        fi
+        echo ""
+        [[ $REPLY =~ ^[Yy]$ ]] || exit 1
     fi
-    echo ""
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
-fi
-if [ -d "$CLAUDE_DIR/projects" ]; then
-    echo "* Claude Code data found"
 else
-    echo "* Claude Code installed (stats will appear after first session)"
+    echo "✓ Claude Code"
 fi
 
 # ─── 2. Check/Install SwiftBar ───
 if [ -d "/Applications/SwiftBar.app" ]; then
-    echo "* SwiftBar already installed"
+    echo "✓ SwiftBar"
 else
     echo "Installing SwiftBar..."
     if command -v brew &>/dev/null; then
         brew install --cask swiftbar
     else
         echo ""
-        echo "SwiftBar is required. Install options:"
-        echo "  1. Install Homebrew first: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-        echo "     Then: brew install --cask swiftbar"
-        echo "  2. Download: https://github.com/swiftbar/SwiftBar/releases"
+        echo "SwiftBar is required. Options:"
+        echo "  1. brew install --cask swiftbar"
+        echo "  2. https://github.com/swiftbar/SwiftBar/releases"
         echo ""
-        echo "Then run this script again."
         exit 1
     fi
 fi
@@ -54,18 +65,41 @@ if [ -z "$PLUGIN_DIR" ]; then
     PLUGIN_DIR="$HOME/Library/Application Support/SwiftBar/plugins"
     mkdir -p "$PLUGIN_DIR"
 fi
-echo "* Plugin directory: $PLUGIN_DIR"
 
-# ─── 4. Download plugin ───
-echo "Downloading plugin..."
-curl -fsSL "$REPO/$PLUGIN_NAME" -o "$PLUGIN_DIR/$PLUGIN_NAME"
+# ─── 4. Clean up old/conflicting plugins ───
+for old in "ccpeek.5m.py" "ccpeek.5m.py.disabled" "cc-pulse.5m.py"; do
+    if [ -f "$PLUGIN_DIR/$old" ]; then
+        rm -f "$PLUGIN_DIR/$old"
+        echo "✓ Removed old plugin: $old"
+    fi
+done
+
+# ─── 5. Download plugin ───
+echo "Downloading latest plugin..."
+curl -fsSL "${REPO}/${PLUGIN_NAME}?v=${VERSION}" -o "$PLUGIN_DIR/$PLUGIN_NAME"
 chmod +x "$PLUGIN_DIR/$PLUGIN_NAME"
-echo "* Plugin installed"
+echo "✓ Plugin installed"
 
-# ─── 5. Create config ───
+# ─── 6. Create config (skip in update mode or if exists) ───
 CONFIG_DIR="$HOME/.config/cc-token-stats"
 CONFIG_FILE="$CONFIG_DIR/config.json"
-if [ ! -f "$CONFIG_FILE" ]; then
+if [ -f "$CONFIG_FILE" ]; then
+    echo "✓ Config preserved: $CONFIG_FILE"
+elif $UPDATE_MODE; then
+    echo "⚠ No config found, creating default..."
+    mkdir -p "$CONFIG_DIR"
+    cat > "$CONFIG_FILE" << CFGEOF
+{
+  "claude_dir": "$HOME/.claude",
+  "sync_mode": "auto",
+  "subscription": 0,
+  "subscription_label": "",
+  "language": "auto",
+  "machine_labels": {},
+  "menu_bar_icon": "sfSymbol=sparkles.rectangle.stack"
+}
+CFGEOF
+else
     mkdir -p "$CONFIG_DIR"
 
     # Interactive subscription picker
@@ -92,13 +126,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
         4) SUB_PRICE=30;  SUB_LABEL="Team" ;;
         *) SUB_PRICE=0;   SUB_LABEL="" ;;
     esac
-    [ "$SUB_PRICE" -gt 0 ] 2>/dev/null && echo "* $SUB_LABEL \$$SUB_PRICE/mo" || echo "* Skipped (edit config.json later)"
+    [ "$SUB_PRICE" -gt 0 ] 2>/dev/null && echo "✓ $SUB_LABEL \$$SUB_PRICE/mo" || echo "✓ Skipped (edit config.json later)"
 
     cat > "$CONFIG_FILE" << CFGEOF
 {
   "claude_dir": "$HOME/.claude",
   "sync_mode": "auto",
-  "sync_repo": "",
   "subscription": $SUB_PRICE,
   "subscription_label": "$SUB_LABEL",
   "language": "auto",
@@ -106,15 +139,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "menu_bar_icon": "sfSymbol=sparkles.rectangle.stack"
 }
 CFGEOF
-    echo "* Config created: $CONFIG_FILE"
+    echo "✓ Config: $CONFIG_FILE"
 
     ICLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
-    [ -d "$ICLOUD_DIR" ] && echo "* iCloud Drive detected — multi-machine sync enabled"
-else
-    echo "* Config exists: $CONFIG_FILE"
+    [ -d "$ICLOUD_DIR" ] && echo "✓ iCloud Drive — multi-machine sync enabled"
 fi
 
-# ─── 6. Launch SwiftBar ───
+# ─── 7. Launch SwiftBar ───
 if ! defaults read com.ameba.SwiftBar PluginDirectory &>/dev/null; then
     defaults write com.ameba.SwiftBar PluginDirectory -string "$PLUGIN_DIR"
 fi
@@ -125,8 +156,14 @@ if ! pgrep -q SwiftBar; then
 fi
 
 echo ""
-echo "Done! cc-token-status is now in your menu bar."
+if $UPDATE_MODE; then
+    echo "✓ Updated to v${VERSION}!"
+else
+    echo "✓ cc-token-status v${VERSION} installed!"
+fi
 echo ""
 echo "   Config: $CONFIG_FILE"
 echo "   Plugin: $PLUGIN_DIR/$PLUGIN_NAME"
 echo "   Repo:   https://github.com/echowonderfulworld/cc-token-status"
+echo ""
+echo "To update later:  curl -fsSL ${REPO}/install.sh | bash -s -- --update"
