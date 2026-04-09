@@ -125,6 +125,80 @@ def bar(val, maxval, width=12):
     filled = round(val / maxval * width)
     return "█" * filled + "░" * (width - filled)
 
+# ─── Usage API (official rate limits) ────────────────────────────
+
+def get_oauth_token():
+    """Read Claude Code OAuth token from macOS Keychain."""
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-g"],
+            capture_output=True, text=True, timeout=5
+        )
+        # Extract password field from stderr (security outputs it there)
+        for line in out.stderr.splitlines():
+            if line.startswith("password: "):
+                pw = line[len("password: "):]
+                if pw.startswith('"') and pw.endswith('"'):
+                    pw = pw[1:-1]
+                creds = json.loads(pw)
+                oauth = creds.get("claudeAiOauth", {})
+                return oauth.get("accessToken"), oauth.get("subscriptionType"), oauth.get("rateLimitTier")
+    except Exception:
+        pass
+    return None, None, None
+
+def fetch_usage():
+    """Fetch official plan usage from Anthropic API. Returns dict or None."""
+    token, sub_type, tier = get_oauth_token()
+    if not token:
+        return None
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            "https://api.anthropic.com/api/oauth/usage",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "anthropic-beta": "oauth-2025-04-20",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        data["_sub_type"] = sub_type
+        data["_tier"] = tier
+        return data
+    except Exception:
+        return None
+
+USAGE_CACHE = Path.home() / ".config" / "cc-token-stats" / ".usage_cache.json"
+
+def get_usage():
+    """Get usage with local cache to avoid rate limits."""
+    # Try cache first (valid for 4 minutes, plugin runs every 5)
+    if USAGE_CACHE.is_file():
+        try:
+            cached = json.loads(USAGE_CACHE.read_text())
+            age = datetime.now().timestamp() - cached.get("_ts", 0)
+            if age < 240:  # 4 minutes
+                return cached
+        except Exception:
+            pass
+    # Fetch fresh
+    data = fetch_usage()
+    if data:
+        data["_ts"] = datetime.now().timestamp()
+        try:
+            USAGE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            USAGE_CACHE.write_text(json.dumps(data))
+        except Exception:
+            pass
+        return data
+    # Fallback to stale cache
+    if USAGE_CACHE.is_file():
+        try: return json.loads(USAGE_CACHE.read_text())
+        except: pass
+    return None
+
 # ─── Data ────────────────────────────────────────────────────────
 
 def scan():
@@ -416,6 +490,70 @@ def main():
             else:
                 print(f"--Daily avg: {fc(daily_avg)} | {DIM}")
                 print(f"--Monthly est: {fc(monthly_proj)} | {DIM}")
+
+    # ── Official usage limits ──
+    usage = get_usage()
+    if usage:
+        print("---")
+        tier_name = usage.get("_tier", "").replace("default_claude_", "").replace("_", " ").title()
+        if tier_name:
+            title_u = f"📊 Plan 用量 ({tier_name})" if ZH else f"📊 Plan Usage ({tier_name})"
+        else:
+            title_u = "📊 Plan 用量" if ZH else "📊 Plan Usage"
+        print(f"{title_u} | {H2}")
+
+        def usage_bar(pct, label, reset_str):
+            """Render a usage gauge line."""
+            p = min(max(pct, 0), 100)
+            filled = round(p / 100 * 15)
+            b = "█" * filled + "░" * (15 - filled)
+            # Color: green < 50%, yellow 50-80%, red > 80%
+            if p >= 80: color = "#E85838"
+            elif p >= 50: color = "#E8A838"
+            else: color = "#4EC9B0"
+            # Parse reset time
+            reset_label = ""
+            if reset_str:
+                try:
+                    rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    diff = rt - datetime.now()
+                    hrs = int(diff.total_seconds() // 3600)
+                    mins = int((diff.total_seconds() % 3600) // 60)
+                    if hrs > 24:
+                        days = hrs // 24
+                        reset_label = f"{days}d" if not ZH else f"{days}天"
+                    elif hrs > 0:
+                        reset_label = f"{hrs}h{mins}m" if not ZH else f"{hrs}时{mins}分"
+                    else:
+                        reset_label = f"{mins}m" if not ZH else f"{mins}分"
+                    reset_label = f"  ↻{reset_label}"
+                except: pass
+            print(f"--{label} | {ROW2}")
+            print(f"--{b}  {p:.0f}%{reset_label} | color={color} size=12 font=Menlo")
+
+        # 5-hour session window
+        fh = usage.get("five_hour")
+        if fh and fh.get("utilization") is not None:
+            label = "5h 会话窗口" if ZH else "5h Session"
+            usage_bar(fh["utilization"], label, fh.get("resets_at"))
+
+        # 7-day all models
+        sd = usage.get("seven_day")
+        if sd and sd.get("utilization") is not None:
+            label = "7d 全模型" if ZH else "7d All Models"
+            usage_bar(sd["utilization"], label, sd.get("resets_at"))
+
+        # 7-day sonnet (if present)
+        ss = usage.get("seven_day_sonnet")
+        if ss and ss.get("utilization") is not None:
+            label = "7d Sonnet" if ZH else "7d Sonnet"
+            usage_bar(ss["utilization"], label, ss.get("resets_at"))
+
+        # 7-day opus (if present)
+        so = usage.get("seven_day_opus")
+        if so and so.get("utilization") is not None:
+            label = "7d Opus" if ZH else "7d Opus"
+            usage_bar(so["utilization"], label, so.get("resets_at"))
 
     print("---")
 
