@@ -492,20 +492,28 @@ def main():
             filled = round(p / 100 * 10)
             return "▰" * filled + "▱" * (10 - filled)
 
-        def _color(pct):
-            if pct >= 80: return "#E85838"
-            if pct >= 50: return "#E8A838"
-            return "#4EC9B0"
+        # Each gauge gets a distinct color
+        LINE_COLORS = ["#4EC9B0", "#7AAFCF", "#E0D8C8", "#E8A838"]
+        _color_idx = [0]
 
-        # Labels: fixed 8-char width so gauges align
+        def _danger_color(pct):
+            """Override color when usage is critical."""
+            if pct >= 80: return "#E85838"
+            if pct >= 60: return "#E8A838"
+            return None
+
         LW = 8
         def _usage_line(label, obj):
             if not obj or obj.get("utilization") is None: return
             p = obj["utilization"]
             rst = _reset_label(obj.get("resets_at"))
-            rst_s = f"  ↻{rst}" if rst else ""
+            rst_s = f"↻{rst}" if rst else ""
             padded = f"{label:<{LW}}"
-            print(f"{padded}{_gauge(p)}  {p:.0f}%{rst_s} | color={_color(p)} size=13 font=Menlo")
+            pct_s = f"{p:.0f}%"
+            # Fixed-width: pct 4 chars, reset 8 chars → always aligned
+            col = _danger_color(p) or LINE_COLORS[_color_idx[0] % len(LINE_COLORS)]
+            _color_idx[0] += 1
+            print(f"{padded}{_gauge(p)}  {pct_s:>4}  {rst_s:<8} | color={col} size=13 font=Menlo")
             # Submenu: reset time
             rt_local = _reset_time_local(obj.get("resets_at", ""))
             if rt_local:
