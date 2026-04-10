@@ -115,15 +115,15 @@ SYNC_DIR, SYNC_TYPE = resolve_sync()
 # ─── Pricing / Formatting ────────────────────────────────────────
 
 # Per-model pricing (USD per 1M tokens) — https://docs.anthropic.com/en/docs/about-claude/models
-# Opus 4.5/4.6: $5/$25, cache_write $6.25(5m)/$10(1h), cache_read $0.50
+# Using 1h cache write prices (Claude Code uses 1h cache ~90% of the time)
 # Opus 4.0/4.1: $15/$75 (legacy)
 # Sonnet 4.5/4.6: $3/$15
 # Haiku 4.5: $1/$5
 PRICING = {
     "opus_new":  {"input": 5,    "output": 25, "cache_write": 10,    "cache_read": 0.50},
     "opus_old":  {"input": 15,   "output": 75, "cache_write": 18.75, "cache_read": 1.50},
-    "sonnet":    {"input": 3,    "output": 15, "cache_write": 3.75,  "cache_read": 0.30},
-    "haiku":     {"input": 1,    "output": 5,  "cache_write": 1.25,  "cache_read": 0.10},
+    "sonnet":    {"input": 3,    "output": 15, "cache_write": 6,     "cache_read": 0.30},
+    "haiku":     {"input": 1,    "output": 5,  "cache_write": 2,     "cache_read": 0.10},
 }
 MODEL_SHORT = {
     "claude-opus-4-6":"Opus 4.6","claude-opus-4-5-20250918":"Opus 4.5",
