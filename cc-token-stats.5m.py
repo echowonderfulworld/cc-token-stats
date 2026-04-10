@@ -163,6 +163,57 @@ def tier(m):
     if "haiku" in ml: return "haiku"
     return "sonnet"
 
+# ─── Menu bar icon generator ─────────────────────────────────────
+
+_PIXEL_FONT = {
+    '0':['01110','10001','10001','10001','10001','10001','01110'],
+    '1':['00100','01100','00100','00100','00100','00100','01110'],
+    '2':['01110','10001','00001','00110','01000','10000','11111'],
+    '3':['01110','10001','00001','00110','00001','10001','01110'],
+    '4':['00010','00110','01010','10010','11111','00010','00010'],
+    '5':['11111','10000','11110','00001','00001','10001','01110'],
+    '6':['01110','10000','11110','10001','10001','10001','01110'],
+    '7':['11111','00001','00010','00100','01000','01000','01000'],
+    '8':['01110','10001','10001','01110','10001','10001','01110'],
+    '9':['01110','10001','10001','01111','00001','00001','01110'],
+    '%':['11001','11010','00100','00100','01011','10011','00000'],
+    'h':['10000','10000','10000','11110','10001','10001','10001'],
+    'd':['00001','00001','00001','01111','10001','10001','01111'],
+    '/':['00001','00010','00010','00100','01000','01000','10000'],
+    ' ':['00000','00000','00000','00000','00000','00000','00000'],
+}
+
+def _make_menubar_icon(line1, line2):
+    """Generate a tiny PNG with two lines of pixel text for the menu bar."""
+    import struct, zlib
+    w, h = 48, 18
+    px = [[0]*w for _ in range(h)]
+    for text, y0 in [(line1, 1), (line2, 10)]:
+        for cy in range(7):
+            for ci, ch in enumerate(text):
+                glyph = _PIXEL_FONT.get(ch, _PIXEL_FONT[' '])
+                for cx in range(5):
+                    x = ci * 6 + cx
+                    if x < w and (y0 + cy) < h:
+                        px[y0 + cy][x] = 1 if glyph[cy][cx] == '1' else 0
+    # Encode PNG
+    ihdr_data = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+    ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data) & 0xffffffff
+    ihdr = struct.pack('>I', 13) + b'IHDR' + ihdr_data + struct.pack('>I', ihdr_crc)
+    raw = b''
+    for y in range(h):
+        raw += b'\x00'
+        for x in range(w):
+            v = 255 if px[y][x] else 0
+            raw += bytes([v, v, v])
+    compressed = zlib.compress(raw)
+    idat_crc = zlib.crc32(b'IDAT' + compressed) & 0xffffffff
+    idat = struct.pack('>I', len(compressed)) + b'IDAT' + compressed + struct.pack('>I', idat_crc)
+    iend_crc = zlib.crc32(b'IEND') & 0xffffffff
+    iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
+    import base64
+    return base64.b64encode(b'\x89PNG\r\n\x1a\n' + ihdr + idat + iend).decode()
+
 def mlabel(h):
     labels = CFG.get("machine_labels",{})
     if h in labels: return labels[h]
@@ -639,7 +690,12 @@ def main():
         _sd = usage.get("seven_day")
         if _sd and _sd.get("utilization") is not None: _7d_util = _sd["utilization"]
 
-    print("CC")
+    # Menu bar: CC + icon with 5h/7d usage
+    if _5h_util > 0 or _7d_util > 0:
+        icon_b64 = _make_menubar_icon(f"5h {_5h_util:.0f}%", f"7d {_7d_util:.0f}%")
+        print(f"CC | templateImage={icon_b64}")
+    else:
+        print("CC")
     print("---")
 
     # ═══════════════════════════════════════════════════════════════
