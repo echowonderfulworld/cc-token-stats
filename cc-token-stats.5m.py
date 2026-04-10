@@ -988,10 +988,21 @@ def main():
     notify_label = f"{notify_icon} {t('notify')}"
     toggle_val = "False" if notify_on else "True"  # Python bool, not JSON
     # Write a tiny helper script for SwiftBar to execute
+    # Find plugin path for touch-refresh
+    _plugin_path = ""
+    try:
+        _pd = subprocess.run(["defaults","read","com.ameba.SwiftBar","PluginDirectory"],
+                             capture_output=True, text=True, timeout=3).stdout.strip()
+        if _pd: _plugin_path = os.path.join(_pd, "cc-token-stats.5m.py")
+    except: pass
+    if not _plugin_path:
+        _plugin_path = os.path.join(str(Path.home()), "Library", "Application Support",
+                                    "SwiftBar", "plugins", "cc-token-stats.5m.py")
+
     try:
         Path(helper).parent.mkdir(parents=True, exist_ok=True)
         Path(helper).write_text(f"""#!/bin/bash
-REFRESH_CMD="open -g 'swiftbar://refreshplugin?name=cc-token-stats'"
+PLUGIN="{_plugin_path}"
 
 case "$1" in
   notify)
@@ -1002,15 +1013,14 @@ c = json.loads(p.read_text())
 c['notifications'] = {toggle_val}
 p.write_text(json.dumps(c, indent=2))
 "
-    sleep 0.5 && $REFRESH_CMD
     ;;
   login-add)
     osascript -e 'tell application "System Events" to make login item at end with properties {{path:"/Applications/SwiftBar.app", hidden:false}}'
-    sleep 1 && $REFRESH_CMD
+    sleep 1
     ;;
   login-remove)
     osascript -e 'tell application "System Events" to delete login item "SwiftBar"'
-    sleep 1 && $REFRESH_CMD
+    sleep 1
     ;;
   sub)
     python3 -c "
@@ -1021,7 +1031,6 @@ c['subscription'] = int('$2')
 c['subscription_label'] = '$3'
 p.write_text(json.dumps(c, indent=2))
 "
-    sleep 0.5 && $REFRESH_CMD
     ;;
 esac
 """)
