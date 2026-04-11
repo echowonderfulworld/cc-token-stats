@@ -1112,7 +1112,12 @@ def main():
         _next_threshold = LEVELS[_lvl + 1][0] if _lvl < len(LEVELS) - 1 else None
 
         print("---")
-        print(f"{_icon} Lv.{_lvl+1} {_name} · {_score}pts | {SEC}")
+        # Experience bar within current level
+        _cur_threshold = LEVELS[_lvl][0]
+        _next_t = LEVELS[_lvl + 1][0] if _lvl < len(LEVELS) - 1 else 100
+        _progress = (_score - _cur_threshold) / max(_next_t - _cur_threshold, 1)
+        _exp_bar = bar(_progress * 10, 10, 8)
+        print(f"{_icon} Lv.{_lvl+1} {_name} {_exp_bar} | {SEC}")
 
         # Submenu: dimension breakdown
         dim_names = {"usage": "使用深度" if LANG == "zh" else "Usage",
