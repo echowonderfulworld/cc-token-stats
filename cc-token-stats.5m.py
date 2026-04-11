@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "2.5.1"
+VERSION = "2.5.2"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, socket, subprocess
@@ -856,7 +856,10 @@ def main():
         _sd = usage.get("seven_day")
         if _sd and _sd.get("utilization") is not None: _7d_util = _sd["utilization"]
 
-    print("CC")
+    if _5h_util > 0:
+        print(f"CC {_5h_util:.0f}%")
+    else:
+        print("CC")
     print("---")
 
     # ═══════════════════════════════════════════════════════════════
