@@ -231,6 +231,145 @@ def _make_menubar_icon(r1, r2):
     iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
     return base64.b64encode(b'\x89PNG\r\n\x1a\n' + ihdr + idat + iend).decode()
 
+# ─── User Level System ────────────────────────────────────────────
+
+LEVELS = [
+    (0,  "🌑", "Starter",      "练气期"),
+    (13, "🌒", "Planner",      "筑基期"),
+    (31, "🌓", "Engineer",     "金丹期"),
+    (51, "🌔", "Integrator",   "元婴期"),
+    (71, "🌕", "Architect",    "化神期"),
+    (86, "👑", "Orchestrator", "大乘期"),
+]
+
+def calc_user_level():
+    """Calculate user level from local data. Returns (score, level_idx, details)."""
+    import glob as _g
+    _home = os.path.expanduser("~")
+    _cd = os.path.join(_home, ".claude")
+    details = {}
+
+    # 1. Usage maturity (20pts): median session length + density
+    _sessions = []
+    _dates = set()
+    for jf in _g.glob(os.path.join(_cd, "projects/*/*.jsonl")):
+        cnt = 0
+        try:
+            with open(jf) as f:
+                for line in f:
+                    d = json.loads(line)
+                    if d.get("type") == "assistant": cnt += 1
+                    ts = d.get("timestamp", "")
+                    if ts: _dates.add(ts[:10])
+        except: pass
+        if cnt > 0: _sessions.append(cnt)
+    _sessions.sort()
+    med = _sessions[len(_sessions)//2] if _sessions else 0
+    _ad = len(_dates)
+    if _dates:
+        _fd, _ld = min(_dates), max(_dates)
+        _td = (datetime.strptime(_ld, "%Y-%m-%d") - datetime.strptime(_fd, "%Y-%m-%d")).days + 1
+    else:
+        _td = 1
+    _dens = _ad / max(_td, 1)
+    s1 = 16 if med >= 80 else 10 if med >= 50 else 6 if med >= 30 else 2 if med >= 10 else 0
+    s1 += 4 if _dens >= 0.6 else 2 if _dens >= 0.4 else 0
+    s1 = min(s1, 20)
+    details["usage"] = s1
+
+    # 2. Context management (20pts)
+    s2 = 0
+    _cm = os.path.join(_cd, "CLAUDE.md")
+    if os.path.isfile(_cm):
+        s2 += 4 if len(open(_cm).readlines()) > 50 else 2
+    _pcm = _g.glob(os.path.join(_home, "Downloads/*/CLAUDE.md"))
+    s2 += 4 if len(_pcm) >= 3 else 2 if len(_pcm) >= 1 else 0
+    _md = os.path.join(_cd, "projects/-Users-" + os.path.basename(_home), "memory")
+    _mf = [f for f in _g.glob(os.path.join(_md, "*.md")) if "MEMORY.md" not in f] if os.path.isdir(_md) else []
+    _sm = [f for f in _mf if os.path.getsize(f) > 200]
+    _mr = any((datetime.now().timestamp() - os.path.getmtime(f)) < 7*86400 for f in _sm) if _sm else False
+    s2 += 4 if len(_sm) >= 5 and _mr else 2 if len(_sm) >= 2 else 0
+    _rd = [os.path.join(_cd, "rules"), os.path.join(_cd, ".claude/rules")]
+    _rc = sum(len(_g.glob(os.path.join(d, "*"))) for d in _rd if os.path.isdir(d))
+    if _rc > 0: s2 += 4
+    s2 = min(s2, 20)
+    details["context"] = s2
+
+    # 3. Tool ecosystem (20pts)
+    s3 = 0
+    _wm = {"zentao","gitlab","jira","confluence","jenkins"}
+    _pm = 0; _mc = 0
+    _mf2 = os.path.join(_cd, "mcp.json")
+    if os.path.isfile(_mf2):
+        try:
+            _md2 = json.load(open(_mf2))
+            _svs = _md2.get("mcpServers", {})
+            _mc = len(_svs)
+            _pm = sum(1 for n in _svs if not any(w in n.lower() for w in _wm))
+        except: pass
+    _em = _pm + (_mc - _pm) * 0.5
+    s3 += 14 if _em >= 4 else 10 if _em >= 3 else 7 if _em >= 2 else 4 if _em >= 1 else 0
+    _pl = _g.glob(os.path.join(_cd, "plugins/cache/*/"))
+    s3 += 4 if len(_pl) >= 3 else 2 if len(_pl) >= 1 else 0
+    s3 = min(s3, 20)
+    details["tools"] = s3
+
+    # 4. Automation (20pts) — self-built weighted
+    _fp = ("gsd","jjx","rn-","claude-","commit-","code-review","pr-review","understand","smart-",
+           "mem-","workflow-","using-","test-","systematic","verification","receiving-","requesting-",
+           "writing-","log-","dispatching","executing-","finishing-","subagent","brainstorming","planning-")
+    _cmddir = os.path.join(_cd, "commands")
+    _ac = [f for f in os.listdir(_cmddir) if f.endswith(".md")] if os.path.isdir(_cmddir) else []
+    _sc2 = [c for c in _ac if not any(c.startswith(p) for p in _fp)]
+    _skdir = os.path.join(_cd, "skills")
+    _ask = os.listdir(_skdir) if os.path.isdir(_skdir) else []
+    _ssk = [s for s in _ask if not any(s.startswith(p) for p in _fp)]
+    _hc = 0
+    _sf = os.path.join(_cd, "settings.json")
+    if os.path.isfile(_sf):
+        try:
+            _sd = json.load(open(_sf))
+            for v in _sd.get("hooks", {}).values():
+                if isinstance(v, list): _hc += len(v)
+        except: pass
+    _raw = 0
+    _nsc = len(_sc2)
+    _raw += 14 if _nsc >= 10 else 10 if _nsc >= 5 else 6 if _nsc >= 3 else 3 if _nsc >= 1 else 0
+    _raw += 6 if _hc >= 3 else 3 if _hc >= 1 else 0
+    _raw = min(_raw, 20)
+    _ta = len(_ac) + len(_ask)
+    _sa = len(_sc2) + len(_ssk)
+    _sr = _sa / max(_ta, 1)
+    s4 = int(_raw * (0.3 + 0.7 * _sr))
+    s4 = min(s4, 20)
+    details["automation"] = s4
+
+    # 5. Scale (20pts) — substantial projects only
+    s5 = 0
+    _pdir = os.path.join(_cd, "projects")
+    _ps = {}
+    for pd in _g.glob(os.path.join(_pdir, "*")):
+        if os.path.isdir(pd):
+            _ps[os.path.basename(pd)] = len(_g.glob(os.path.join(pd, "*.jsonl")))
+    _sp = sum(1 for c in _ps.values() if c >= 5)
+    s5 += 10 if _sp >= 8 else 7 if _sp >= 5 else 4 if _sp >= 3 else 2 if _sp >= 1 else 0
+    # worktree detection (simplified)
+    try:
+        _wt = subprocess.run(["find", os.path.join(_home, "Downloads"), "-maxdepth", "4",
+                              "-name", "worktrees", "-path", "*/.git/*"],
+                             capture_output=True, text=True, timeout=3)
+        if _wt.stdout.strip(): s5 += 4
+    except: pass
+    s5 += 4 if _td >= 90 else 3 if _td >= 60 else 2 if _td >= 30 else 1 if _td >= 14 else 0
+    s5 = min(s5, 20)
+    details["scale"] = s5
+
+    total = s1 + s2 + s3 + s4 + s5
+    lvl = 0
+    for i, (threshold, *_) in enumerate(LEVELS):
+        if total >= threshold: lvl = i
+    return total, lvl, details
+
 def mlabel(h):
     labels = CFG.get("machine_labels",{})
     if h in labels: return labels[h]
@@ -962,6 +1101,37 @@ def main():
         for name, data in top:
             short_name = f"{name[:14]:<14}" if len(name) <= 14 else f"{name[:13]}…"
             print(f"--{short_name}  {fc(data['cost']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+
+    # ═══ USER LEVEL ═══
+    try:
+        _score, _lvl, _det = calc_user_level()
+        _icon = LEVELS[_lvl][1]
+        _en_name = LEVELS[_lvl][2]
+        _zh_name = LEVELS[_lvl][3]
+        _name = _zh_name if LANG == "zh" else _en_name
+        _next_threshold = LEVELS[_lvl + 1][0] if _lvl < len(LEVELS) - 1 else None
+
+        print("---")
+        print(f"{_icon} Lv.{_lvl+1} {_name} · {_score}pts | {SEC}")
+
+        # Submenu: dimension breakdown
+        dim_names = {"usage": "使用深度" if LANG == "zh" else "Usage",
+                     "context": "上下文" if LANG == "zh" else "Context",
+                     "tools": "工具生态" if LANG == "zh" else "Tools",
+                     "automation": "自动化" if LANG == "zh" else "Automation",
+                     "scale": "规模化" if LANG == "zh" else "Scale"}
+        for k, label in dim_names.items():
+            v = _det.get(k, 0)
+            b = bar(v, 20, 5)
+            print(f"--{label:<10} {b} {v:>2}/20 | {ROW2}")
+
+        if _next_threshold:
+            gap = _next_threshold - _score
+            _next_icon = LEVELS[_lvl + 1][1]
+            _next_name = LEVELS[_lvl + 1][3] if LANG == "zh" else LEVELS[_lvl + 1][2]
+            next_label = "下一级" if LANG == "zh" else "Next"
+            print(f"--{next_label}: {_next_icon} Lv.{_lvl+2} {_next_name} (+{gap}pts) | {DIM}")
+    except: pass
 
     # ═══════════════════════════════════════════════════════════════
     # FOOTER
