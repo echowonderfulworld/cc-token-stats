@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "2.5.5"
+VERSION = "2.6.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, socket, subprocess
@@ -33,18 +33,19 @@ DEFAULTS = {
     "auto_update": True,
 }
 NOTIFY_STATE_FILE = Path.home() / ".config" / "cc-token-stats" / ".notify_state.json"
+SCAN_CACHE_FILE = Path.home() / ".config" / "cc-token-stats" / ".scan_cache.json"
 
 def load_config():
     cfg = dict(DEFAULTS)
     if CONFIG_FILE.is_file():
         try:
             with open(CONFIG_FILE) as f: cfg.update(json.load(f))
-        except: pass
+        except Exception: pass
     for ek, ck in [("CC_STATS_CLAUDE_DIR","claude_dir"),("CC_STATS_SYNC_REPO","sync_repo"),("CC_STATS_LANG","language")]:
         if os.environ.get(ek): cfg[ck] = os.environ[ek]
     if os.environ.get("CC_STATS_SUBSCRIPTION"):
         try: cfg["subscription"] = float(os.environ["CC_STATS_SUBSCRIPTION"])
-        except: pass
+        except Exception: pass
     if cfg["language"] == "auto":
         try:
             out = subprocess.check_output(["defaults","read",".GlobalPreferences","AppleLanguages"], stderr=subprocess.DEVNULL, text=True)
@@ -55,7 +56,7 @@ def load_config():
                 cfg["language"] = fl if fl in supported else "en"
             else:
                 cfg["language"] = "en"
-        except: cfg["language"] = "en"
+        except Exception: cfg["language"] = "en"
     return cfg
 
 CFG = load_config()
@@ -195,7 +196,7 @@ def calc_user_level():
                     if d.get("type") == "assistant": cnt += 1
                     ts = d.get("timestamp", "")
                     if ts: _dates.add(ts[:10])
-        except: pass
+        except Exception: pass
         if cnt > 0: _sessions.append(cnt)
     _sessions.sort()
     med = _sessions[len(_sessions)//2] if _sessions else 0
@@ -240,7 +241,7 @@ def calc_user_level():
             _svs = _md2.get("mcpServers", {})
             _mc = len(_svs)
             _pm = sum(1 for n in _svs if not any(w in n.lower() for w in _wm))
-        except: pass
+        except Exception: pass
     _em = _pm + (_mc - _pm) * 0.5
     s3 += 14 if _em >= 4 else 10 if _em >= 3 else 7 if _em >= 2 else 4 if _em >= 1 else 0
     _pl = _g.glob(os.path.join(_cd, "plugins/cache/*/"))
@@ -265,7 +266,7 @@ def calc_user_level():
             _sd = json.load(open(_sf))
             for v in _sd.get("hooks", {}).values():
                 if isinstance(v, list): _hc += len(v)
-        except: pass
+        except Exception: pass
     _raw = 0
     _nsc = len(_sc2)
     _raw += 14 if _nsc >= 10 else 10 if _nsc >= 5 else 6 if _nsc >= 3 else 3 if _nsc >= 1 else 0
@@ -293,7 +294,7 @@ def calc_user_level():
                               "-name", "worktrees", "-path", "*/.git/*"],
                              capture_output=True, text=True, timeout=3)
         if _wt.stdout.strip(): s5 += 4
-    except: pass
+    except Exception: pass
     s5 += 4 if _td >= 90 else 3 if _td >= 60 else 2 if _td >= 30 else 1 if _td >= 14 else 0
     s5 = min(s5, 20)
     details["scale"] = s5
@@ -327,7 +328,7 @@ def check_and_notify(usage):
     try:
         if NOTIFY_STATE_FILE.is_file():
             state = json.loads(NOTIFY_STATE_FILE.read_text())
-    except: pass
+    except Exception: pass
 
     thresholds = [80, 95]
     checks = [
@@ -358,7 +359,7 @@ def check_and_notify(usage):
                         "osascript", "-e",
                         f'display notification "{msg}" with title "{title}" subtitle "cc-token-status"'
                     ], timeout=5)
-                except: pass
+                except Exception: pass
                 state[state_key] = datetime.now().isoformat()
                 changed = True
 
@@ -373,7 +374,7 @@ def check_and_notify(usage):
             NOTIFY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             NOTIFY_STATE_FILE.write_text(json.dumps(state))
             NOTIFY_STATE_FILE.chmod(0o600)
-        except: pass
+        except Exception: pass
 
 # ─── Auto-update (once per day, silent) ──────────────────────────
 
@@ -389,10 +390,10 @@ def auto_update():
             last = float(UPDATE_CHECK_FILE.read_text().strip())
             if datetime.now().timestamp() - last < 86400:  # 24h
                 return
-    except: pass
+    except Exception: pass
 
     try:
-        import urllib.request
+        import urllib.request, hashlib
         # Fetch remote version line
         req = urllib.request.Request(f"{REPO_URL}/cc-token-stats.5m.py",
                                      headers={"Range": "bytes=0-500"})
@@ -403,7 +404,7 @@ def auto_update():
             if line.startswith("VERSION"):
                 remote_ver = line.split('"')[1]
                 if remote_ver != VERSION:
-                    # Download full file
+                    # Resolve plugin path
                     plugin_path = None
                     try:
                         plugin_dir = subprocess.run(
@@ -412,15 +413,25 @@ def auto_update():
                         ).stdout.strip()
                         if plugin_dir:
                             plugin_path = os.path.join(plugin_dir, "cc-token-stats.5m.py")
-                    except: pass
+                    except Exception: pass
                     if not plugin_path:
                         plugin_path = os.path.join(
                             str(Path.home()), "Library", "Application Support",
                             "SwiftBar", "plugins", "cc-token-stats.5m.py")
 
-                    # Atomic update: download to temp file, then rename
+                    # Download to temp file
                     tmp_path = plugin_path + ".tmp"
                     urllib.request.urlretrieve(f"{REPO_URL}/cc-token-stats.5m.py", tmp_path)
+
+                    # Verify SHA256 checksum
+                    with open(tmp_path, "rb") as f:
+                        actual_hash = hashlib.sha256(f.read()).hexdigest()
+                    with urllib.request.urlopen(f"{REPO_URL}/checksum.sha256", timeout=5) as resp:
+                        expected_hash = resp.read().decode().strip().split()[0]
+                    if actual_hash != expected_hash:
+                        os.remove(tmp_path)
+                        break  # checksum mismatch, abort update
+
                     os.chmod(tmp_path, 0o755)
                     os.rename(tmp_path, plugin_path)  # atomic on same filesystem
                 break
@@ -429,7 +440,7 @@ def auto_update():
         UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
         UPDATE_CHECK_FILE.write_text(str(datetime.now().timestamp()))
         UPDATE_CHECK_FILE.chmod(0o600)
-    except: pass
+    except Exception: pass
 
 # ─── Usage API (official rate limits) ────────────────────────────
 
@@ -503,14 +514,63 @@ def get_usage():
     # Fallback to stale cache
     if USAGE_CACHE.is_file():
         try: return json.loads(USAGE_CACHE.read_text())
-        except: pass
+        except Exception: pass
     return None
 
 # ─── Data ────────────────────────────────────────────────────────
 
+def _file_fingerprints(base):
+    """Collect {path: mtime} for all JSONL files under base."""
+    fps = {}
+    if not os.path.isdir(base):
+        return fps
+    for pd in glob.glob(os.path.join(base, "*")):
+        if not os.path.isdir(pd): continue
+        for jf in glob.glob(os.path.join(pd, "*.jsonl")):
+            try: fps[jf] = os.path.getmtime(jf)
+            except Exception: pass
+    return fps
+
+def _load_scan_cache(base, today_str):
+    """Return cached scan result if all files unchanged and same day."""
+    try:
+        if not SCAN_CACHE_FILE.is_file():
+            return None
+        cache = json.loads(SCAN_CACHE_FILE.read_text())
+        if cache.get("date") != today_str:
+            return None  # day boundary crossed, need re-scan for today stats
+        current_fps = _file_fingerprints(base)
+        cached_fps = cache.get("file_mtimes", {})
+        if current_fps == cached_fps:
+            # Restore defaultdicts from cached plain dicts
+            s = cache["result"]
+            s["daily"] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}, s.get("daily", {}))
+            s["hourly"] = defaultdict(int, {int(k): v for k, v in s.get("hourly", {}).items()})
+            s["projects"] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}, s.get("projects", {}))
+            return s
+    except Exception: pass
+    return None
+
+def _save_scan_cache(base, today_str, s):
+    """Save scan result and file fingerprints to cache."""
+    try:
+        cache = {
+            "date": today_str,
+            "file_mtimes": _file_fingerprints(base),
+            "result": {k: (dict(v) if isinstance(v, defaultdict) else v) for k, v in s.items()},
+        }
+        SCAN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SCAN_CACHE_FILE.write_text(json.dumps(cache))
+    except Exception: pass
+
 def scan():
     base = os.path.join(CLAUDE_DIR, "projects")
     today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Incremental: return cached result if no files changed
+    cached = _load_scan_cache(base, today_str)
+    if cached is not None:
+        return cached
 
     now_dt = datetime.now()
     cutoff_5h = now_dt - timedelta(hours=5)
@@ -547,7 +607,7 @@ def scan():
         for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             has = False
             try: fd = datetime.fromtimestamp(os.path.getmtime(jf)).strftime("%Y-%m-%d")
-            except: fd = None
+            except Exception: fd = None
             try:
                 with open(jf, "r", encoding="utf-8") as f:
                     for line in f:
@@ -596,7 +656,7 @@ def scan():
                                 try:
                                     local_h = datetime.fromisoformat(ts_str.replace("Z","+00:00")).astimezone().hour
                                     s["hourly"][local_h] += 1
-                                except: pass
+                                except Exception: pass
 
                             # Rolling windows (5h / 7d)
                             if ts_str:
@@ -608,17 +668,19 @@ def scan():
                                     if msg_dt >= cutoff_7d:
                                         s["window_7d"]["tokens"] += total_t; s["window_7d"]["cost"] += mc
                                         s["window_7d"]["msgs"] += 1; s["window_7d"]["out"] += o
-                                except: pass
+                                except Exception: pass
 
                             # Project
                             s["projects"][proj_name]["tokens"] += total_t
                             s["projects"][proj_name]["cost"] += mc
                             s["projects"][proj_name]["msgs"] += 1
 
-                        except: pass
+                        except Exception: pass
                 if has:
                     s["sessions"] += 1
-            except: pass
+            except Exception: pass
+
+    _save_scan_cache(base, today_str, s)
     return s
 
 def save_sync(st):
@@ -632,7 +694,7 @@ def save_sync(st):
             "cache_write_tokens": st["cw"], "cache_read_tokens": st["cr"],
             "total_cost": round(st["cost"], 2), "date_range": {"min": st["d_min"], "max": st["d_max"]},
             "model_breakdown": mb}, open(os.path.join(d, "token-stats.json"), "w"), indent=2)
-    except: pass
+    except Exception: pass
 
 def recalc_remote_cost(data):
     """Recalculate remote machine cost using current pricing (not cached total_cost)."""
@@ -678,7 +740,7 @@ def load_remotes():
         sf = os.path.join(md, m, "token-stats.json")
         if os.path.isfile(sf):
             try: remotes.append(recalc_remote_cost(json.load(open(sf))))
-            except: pass
+            except Exception: pass
     return remotes
 
 # ─── Render ──────────────────────────────────────────────────────
@@ -689,7 +751,7 @@ def _is_dark():
         r = subprocess.run(["defaults","read","-g","AppleInterfaceStyle"],
                            capture_output=True, text=True, timeout=3)
         return "dark" in r.stdout.lower()
-    except: return True  # default to dark
+    except Exception: return True  # default to dark
 
 DARK = _is_dark()
 
@@ -827,13 +889,13 @@ def main():
                 if hrs >= 24: return f"1d{hrs-24}h" if not ZH else f"1天{hrs-24}时"
                 if hrs > 0: return f"{hrs}h{mins}m" if not ZH else f"{hrs}时{mins}分"
                 return f"{mins}m" if not ZH else f"{mins}分"
-            except: return ""
+            except Exception: return ""
 
         def _reset_time_local(reset_str):
             try:
                 rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00"))
                 return rt.astimezone().strftime("%m-%d %H:%M")
-            except: return ""
+            except Exception: return ""
 
         def _gauge(pct):
             p = min(max(pct, 0), 100)
@@ -870,7 +932,7 @@ def main():
                 if hrs > 0 and mins > 0: return f"{hrs}h{mins}m"
                 if hrs > 0: return f"{hrs}h"
                 return f"{mins}m"
-            except: return ""
+            except Exception: return ""
 
         gauge_items = [
             ("Session", usage.get("five_hour")),
@@ -1099,7 +1161,7 @@ def main():
             _next_name = LEVELS[_lvl + 1][3] if LANG == "zh" else LEVELS[_lvl + 1][2]
             next_label = "下一级" if LANG == "zh" else "Next"
             print(f"--{next_label}: {_next_icon} Lv.{_lvl+2} {_next_name} | {DIM}")
-    except: pass
+    except Exception: pass
 
     # ═══════════════════════════════════════════════════════════════
     # FOOTER
@@ -1132,7 +1194,7 @@ def main():
         _pd = subprocess.run(["defaults","read","com.ameba.SwiftBar","PluginDirectory"],
                              capture_output=True, text=True, timeout=3).stdout.strip()
         if _pd: _plugin_path = os.path.join(_pd, "cc-token-stats.5m.py")
-    except: pass
+    except Exception: pass
     if not _plugin_path:
         _plugin_path = os.path.join(str(Path.home()), "Library", "Application Support",
                                     "SwiftBar", "plugins", "cc-token-stats.5m.py")
@@ -1182,7 +1244,7 @@ p.write_text(json.dumps(c, indent=2))
 esac
 """)
         os.chmod(helper, 0o755)
-    except: pass
+    except Exception: pass
 
     print(f"{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
 
@@ -1190,7 +1252,7 @@ esac
     try:
         login_items = subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'], capture_output=True, text=True, timeout=5).stdout
         login_on = "SwiftBar" in login_items
-    except: login_on = False
+    except Exception: login_on = False
     login_icon = "✓ " if login_on else "  "
     login_label = f"{login_icon} {t('login')}"
     login_action = "login-remove" if login_on else "login-add"
