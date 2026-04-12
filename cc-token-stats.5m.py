@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "2.10.0"
+VERSION = "1.0.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -991,8 +991,18 @@ def main():
     if today["msgs"] > 0:
         print("---")
         today_label = t("today")
+        # Trend vs yesterday
+        yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        yd = daily.get(yesterday_str)
+        trend = ""
+        if yd and yd["cost"] > 0:
+            pct_change = (today["cost"] - yd["cost"]) / yd["cost"] * 100
+            if pct_change >= 0:
+                trend = f" ↑{pct_change:.0f}%"
+            else:
+                trend = f" ↓{abs(pct_change):.0f}%"
         print(f"── {today_label} ── | {ST}")
-        print(f"⚡ {fc(today['cost'])} · {tk(today['tokens'])} · {today['msgs']} {t('msgs')} | {SEC}")
+        print(f"⚡ {fc(today['cost'])} · {today['msgs']} {t('msgs')}{trend} | {SEC}")
         # Token details in submenu
         print(f"--{t('input')}: {tk(today['inp'])}   {t('output')}: {tk(today['out'])} | {DIM}")
         print(f"--{t('cache_w')}: {tk(today['cw'])}   {t('cache_r')}: {tk(today['cr'])} | {DIM}")
@@ -1004,20 +1014,17 @@ def main():
                 pct = data["msgs"] / tm_total * 100
                 print(f"--{short}: {data['msgs']:,} ({pct:.0f}%) {fc(data['cost'])} | {MODL}")
 
-    # ═══ 3. OVERVIEW ═══
+    # ═══ 3. OVERVIEW (compressed to one line, details in submenu) ═══
     print("---")
     dmin_all = min((m["d_min"] for m in machines if m["d_min"]), default=None)
     dmax_all = max((m["d_max"] for m in machines if m["d_max"]), default=None)
-    rng_label = f"{dmin_all[5:]}~{dmax_all[5:]}" if dmin_all and dmax_all else ""
-    overview_title = "累计" if LANG == "zh" else "Total"
-    if rng_label:
-        print(f"── {overview_title} ({rng_label}) ── | {ST}")
-    else:
-        print(f"── {overview_title} ── | {ST}")
-    print(f"{rj('Cost:', fc(tc))} | {ROW}")
-    print(f"{rj('Sessions:', f'{ts:,}')} | {ROW}")
-    print(f"{rj('Tokens:', tk(ta))} | {ROW}")
-    # Token details in submenu
+    active_span = ""
+    if dmin_all:
+        _span_days = (datetime.now() - datetime.strptime(dmin_all, "%Y-%m-%d")).days + 1
+        active_span = f" · {_span_days}d"
+    print(f"{fc(tc)} · {ts:,} sessions{active_span} | {ROW}")
+    # Details in submenu
+    print(f"--Tokens: {tk(ta)} | {ROW2}")
     print(f"--{t('input')}: {tk(ti):>10}   {t('output')}: {tk(to):>10} | {DIM}")
     print(f"--{t('cache_w')}: {tk(tw):>8}   {t('cache_r')}: {tk(tr):>8} | {DIM}")
 
@@ -1292,7 +1299,12 @@ esac
         os.chmod(helper, 0o755)
     except Exception: pass
 
-    print(f"{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
+    # ⚙️ Settings — all toggles collapsed into one submenu
+    settings_label = "⚙️  设置" if LANG == "zh" else "⚙️  Settings"
+    print(f"{settings_label} | size=13")
+
+    # Notification toggle
+    print(f"--{notify_label} | bash={helper} param1=notify terminal=false refresh=true")
 
     # Launch at login toggle
     try:
@@ -1302,24 +1314,24 @@ esac
     login_icon = "✓ " if login_on else "  "
     login_label = f"{login_icon} {t('login')}"
     login_action = "login-remove" if login_on else "login-add"
-    print(f"{login_label} | bash={helper} param1={login_action} terminal=false refresh=true")
+    print(f"--{login_label} | bash={helper} param1={login_action} terminal=false refresh=true")
 
     # Auto-update toggle
     update_on = CFG.get("auto_update", True)
     update_icon = "✓ " if update_on else "  "
     update_label = f"{update_icon} {t('auto_upd')}"
-    print(f"{update_label} | bash={helper} param1=autoupdate terminal=false refresh=true")
+    print(f"--{update_label} | bash={helper} param1=autoupdate terminal=false refresh=true")
 
     # Subscription plan selector
     cur_sub = CFG.get("subscription", 0)
     plans = [("Pro", 20), ("Max 5x", 100), ("Max 20x", 200), ("Team", 30), ("API / None", 0)]
     plan_title = t("subscription")
     cur_name = next((name for name, price in plans if price == cur_sub), f"${cur_sub}")
-    print(f"{'  '}{plan_title}: {cur_name} | size=13")
+    print(f"--{plan_title}: {cur_name} | size=13")
     for name, price in plans:
         check = "✓ " if price == cur_sub else "  "
         label_short = name.split(" ")[0] if " " in name else name
-        print(f"--{check}{name} (${price}/mo) | bash={helper} param1=sub param2={price} param3={label_short} terminal=false refresh=true")
+        print(f"----{check}{name} (${price}/mo) | bash={helper} param1=sub param2={price} param3={label_short} terminal=false refresh=true")
 
     print("---")
     print("Refresh | refresh=true")
