@@ -1,11 +1,20 @@
-# cc-token-status
+<p align="center">
+  <img src=".github/demo.gif" width="400" alt="cc-token-status demo" />
+</p>
 
-**Claude Code usage dashboard in your macOS menu bar.**
-
-Costs, plan limits, trends, user level — all in one click. No app to install, no server to run, just a single Python script.
+<h1 align="center">cc-token-status</h1>
 
 <p align="center">
-  <img src=".github/demo.gif" width="400" alt="Demo" />
+  Claude Code usage dashboard in your macOS menu bar.<br/>
+  Costs, plan limits, trends, user level — all in one click.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jayson-jia-dev/cc-token-status/releases"><img src="https://img.shields.io/github/v/tag/jayson-jia-dev/cc-token-status?label=version&sort=semver" alt="Version" /></a>
+  <a href="https://github.com/jayson-jia-dev/cc-token-status"><img src="https://img.shields.io/github/stars/jayson-jia-dev/cc-token-status?style=social" alt="Stars" /></a>
+  <a href="https://github.com/jayson-jia-dev/cc-token-status/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jayson-jia-dev/cc-token-status" alt="License" /></a>
+  <img src="https://img.shields.io/badge/python-3.8+-blue" alt="Python 3.8+" />
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="macOS" />
 </p>
 
 <p align="center">
@@ -13,6 +22,24 @@ Costs, plan limits, trends, user level — all in one click. No app to install, 
   &nbsp;&nbsp;
   <img src=".github/screenshot-en.png" height="700" alt="English" />
 </p>
+
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/install.sh | bash
+```
+
+No dependencies to install manually. SwiftBar is auto-installed if missing.
+
+## Why cc-token-status?
+
+| | cc-token-status | CLI tools | Web dashboards |
+|---|---|---|---|
+| **See limits at a glance** | Menu bar, one click | Run a command | Open browser |
+| **Official plan limits** | 5h/7d from Anthropic API | Most don't have | Some have |
+| **Multi-machine sync** | iCloud, zero config | No | No |
+| **Install effort** | One command, no server | npm/pip install | Docker + server |
+| **User level system** | 5-dimension scoring | No | No |
 
 ## Features
 
@@ -30,35 +57,8 @@ Costs, plan limits, trends, user level — all in one click. No app to install, 
 | **Multi-Machine Sync** | iCloud Drive auto-sync across Macs — zero config |
 | **Usage Alerts** | macOS notifications at 80% and 95% plan limits |
 | **Auto-Update** | SHA256-verified updates from GitHub, checks daily |
-| **Incremental Scan** | Caches JSONL parse results, skips unchanged files for instant refresh |
-| **Graceful Errors** | Suppresses transient API failures, only shows hints when truly unavailable |
 | **5 Languages** | EN, 中文, ES, FR, 日本語 — auto-detected from system |
 | **Dark & Light Mode** | Adapts color scheme to macOS appearance |
-
-## Layout
-
-The menu is organized into clear sections:
-
-```
-CC 37%                          ← menu bar: current session utilization
-
-Claude Code Usage Dashboard
-  Session  ▰▰▰▰▱▱▱▱▱▱  37%    ← plan limits with progress bars
-  Weekly   ▰▰▰▰▰▰▰▰▰▱  93%
-── Today ──
-  ⚡ $48.87 · 353 msgs ↓58%    ← today + trend vs yesterday
-── Total (03-02~04-12) ──
-  Cost / Sessions / Tokens      ← cumulative stats
-  💰 Max $100/mo · saved $2,869 (23x)
-── Devices (2 mac · iCloud) ──
-  ● office  $2,089  ○ home $974
-── Details ──
-  Daily / Models / Hours / Projects
-── Level ──
-  🌓 Lv.3 Engineer ▰▰▰▰▰▱▱▱
-Settings                        ← collapsed into submenu
-Refresh / Quit
-```
 
 ## User Level System
 
@@ -80,30 +80,10 @@ Scored across 5 dimensions (100 points total):
 - **Automation** — self-built commands, hooks, skills (framework installs weighted at 30%)
 - **Scale** — substantial projects, worktrees, tenure
 
-## Quick Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/install.sh | bash
-```
-
-## Update
-
-Auto-updates daily with SHA256 verification. Manual update:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/install.sh | bash -s -- --update
-```
-
-## Uninstall
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/uninstall.sh | bash
-```
-
 ## How It Works
 
 - **Token & cost** — scans Claude Code JSONL session logs with incremental caching (only re-parses changed files), calculates API-equivalent cost with official Anthropic pricing
-- **Plan limits** — reads OAuth token from macOS Keychain, queries `api.anthropic.com/api/oauth/usage` with 4-min cache and 30-min stale limit
+- **Plan limits** — reads OAuth token from macOS Keychain, queries `api.anthropic.com/api/oauth/usage` with smart caching (4-min fresh + 30-min stale fallback)
 - **Auto-update** — downloads new versions from GitHub, verifies SHA256 checksum before replacing plugin file
 - **Multi-machine sync** — writes stats to iCloud Drive, reads other machines' data automatically
 - **Refresh** — SwiftBar executes the plugin every 5 minutes
@@ -132,12 +112,38 @@ Edit `~/.config/cc-token-stats/config.json` or use the in-app Settings menu:
 | `sync_mode` | `"auto"` / `"off"` | `"auto"` |
 | `machine_labels` | Custom device names, e.g. `{"RL001":"Office"}` | `{}` |
 
+## Update
+
+Auto-updates daily with SHA256 verification. Manual update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/install.sh | bash -s -- --update
+```
+
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/uninstall.sh | bash
+```
+
 ## Requirements
 
 - macOS
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
 - Python 3.8+
 - [SwiftBar](https://github.com/swiftbar/SwiftBar) (auto-installed)
+
+## Star History
+
+<p align="center">
+  <a href="https://star-history.com/#jayson-jia-dev/cc-token-status&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jayson-jia-dev/cc-token-status&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jayson-jia-dev/cc-token-status&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=jayson-jia-dev/cc-token-status&type=Date" />
+    </picture>
+  </a>
+</p>
 
 ## License
 
