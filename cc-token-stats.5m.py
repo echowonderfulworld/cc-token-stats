@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.0.7"
+VERSION = "1.0.0.8"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -962,18 +962,12 @@ def main():
             filled = round(p / 100 * 10)
             return "▰" * filled + "▱" * (10 - filled)
 
-        # Each gauge gets a distinct color
-        if DARK:
-            LINE_COLORS = ["#5CC6A7", "#E07850", "#6BA4C9", "#D4CDC0"]   # teal, coral, blue, warm white
-        else:
-            LINE_COLORS = ["#1A5C4C", "#A04030", "#1B5A85", "#2C3040"]   # rich teal, deep coral, deep blue, navy
-        _color_idx = [0]
-
-        def _danger_color(pct):
-            """Override color when usage is critical."""
-            if pct >= 80: return "#C03020" if not DARK else "#E85838"
-            if pct >= 60: return "#B86E1A" if not DARK else "#E8A838"
-            return None
+        # Unified color by utilization level (semantic, not positional)
+        def _gauge_color(pct):
+            """Color by usage severity — green/amber/red."""
+            if pct >= 80: return "#E85838" if DARK else "#C03020"   # red
+            if pct >= 60: return "#E8A838" if DARK else "#B86E1A"   # amber
+            return "#5CC6A7" if DARK else "#1A5C4C"                 # teal
 
         LW = 8
 
@@ -1011,8 +1005,7 @@ def main():
             if not obj or obj.get("utilization") is None: continue
             p = obj["utilization"]
             rst = _reset_short(obj.get("resets_at"))
-            col = _danger_color(p) or LINE_COLORS[_color_idx[0] % len(LINE_COLORS)]
-            _color_idx[0] += 1
+            col = _gauge_color(p)
             rt_local = _reset_time_local(obj.get("resets_at", ""))
             # All ASCII: label(8) + gauge(10) + pct(5) + reset(6) = fixed total
             line = f"{label:<{LW}}{_gauge(p)} {p:>3.0f}%  ↻{rst:<5}"
@@ -1059,10 +1052,11 @@ def main():
             # Suppress trend when today's activity < 30% of daily average
             if avg_cost > 0 and (avg_msgs <= 0 or today["msgs"] / avg_msgs >= 0.3):
                 pct_change = (today["cost"] - avg_cost) / avg_cost * 100
-                if pct_change >= 0:
-                    trend = f" ↑{pct_change:.0f}%"
-                else:
-                    trend = f" ↓{abs(pct_change):.0f}%"
+                if abs(pct_change) >= 1:
+                    if pct_change >= 0:
+                        trend = f" ↑{pct_change:.0f}%"
+                    else:
+                        trend = f" ↓{abs(pct_change):.0f}%"
         print(f"── {today_label} ── | {ST}")
         print(f"⚡ {fc(today['cost'])} · {today['msgs']} {t('msgs')}{trend} | {SEC}")
         # Token details in submenu
