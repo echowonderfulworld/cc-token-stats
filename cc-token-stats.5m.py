@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.1.4"
+VERSION = "1.0.1.5"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -1008,7 +1008,7 @@ def main():
         if so and so.get("utilization") is not None:
             gauge_items.append(("Opus   ", so))
         eu = usage.get("extra_usage")
-        if eu and eu.get("used_credits") is not None:
+        if eu and (eu.get("is_enabled") or (eu.get("used_credits") or 0) > 0):
             # API returns utilization as percentage (0.56 = 0.56%)
             eu_util = eu.get("utilization") or 0
             eu_obj = {"utilization": eu_util, "resets_at": eu.get("resets_at", "")}
