@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.1.3"
+VERSION = "1.0.1.4"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -972,11 +972,11 @@ def main():
 
         def _gauge_color(pct):
             """Base color by position, overridden by danger at high utilization."""
+            idx = _color_idx[0]
+            _color_idx[0] += 1
             if pct >= 80: return "#E85838" if DARK else "#C03020"   # red
             if pct >= 60: return "#E8A838" if DARK else "#B86E1A"   # amber
-            col = LINE_COLORS[_color_idx[0] % len(LINE_COLORS)]
-            _color_idx[0] += 1
-            return col
+            return LINE_COLORS[idx % len(LINE_COLORS)]
 
         LW = 8
 
