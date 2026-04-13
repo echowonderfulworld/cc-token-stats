@@ -519,6 +519,24 @@ def auto_update():
 
 # ─── Usage API (official rate limits) ────────────────────────────
 
+def _detect_macos_proxy():
+    """Read HTTPS proxy from macOS system settings via scutil.
+    Returns 'http://host:port' or None."""
+    try:
+        out = subprocess.run(["scutil", "--proxy"], capture_output=True, text=True, timeout=3)
+        d = {}
+        for line in out.stdout.splitlines():
+            if ":" in line:
+                k, _, v = line.partition(":")
+                d[k.strip()] = v.strip()
+        if d.get("HTTPSEnable") == "1" and d.get("HTTPSProxy") and d.get("HTTPSPort"):
+            return f"http://{d['HTTPSProxy']}:{d['HTTPSPort']}"
+        if d.get("HTTPEnable") == "1" and d.get("HTTPProxy") and d.get("HTTPPort"):
+            return f"http://{d['HTTPProxy']}:{d['HTTPPort']}"
+    except Exception:
+        pass
+    return None
+
 def get_oauth_token():
     """Read Claude Code OAuth token from macOS Keychain."""
     try:
@@ -547,19 +565,36 @@ def fetch_usage():
         return None, "no_token"
     try:
         import urllib.request
-        req = urllib.request.Request(
-            "https://api.anthropic.com/api/oauth/usage",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "anthropic-beta": "oauth-2025-04-20",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        data["_sub_type"] = sub_type
-        data["_tier"] = tier
-        return data, None
+        url = "https://api.anthropic.com/api/oauth/usage"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "anthropic-beta": "oauth-2025-04-20",
+            "Content-Type": "application/json",
+        }
+        # Try 1: default behavior (auto-detects env vars + macOS system proxy)
+        # Try 2: if that fails, read macOS system proxy via scutil (SwiftBar
+        #         strips env vars and _scproxy may not work in its sandbox)
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                if attempt == 0:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read())
+                else:
+                    proxy = _detect_macos_proxy()
+                    if not proxy:
+                        break  # no system proxy found, don't retry
+                    handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+                    opener = urllib.request.build_opener(handler)
+                    with opener.open(req, timeout=10) as resp:
+                        data = json.loads(resp.read())
+                data["_sub_type"] = sub_type
+                data["_tier"] = tier
+                return data, None
+            except Exception:
+                if attempt == 0:
+                    continue
+        return None, "api_error"
     except Exception:
         return None, "api_error"
 
@@ -1132,15 +1167,11 @@ def main():
         GOLD = "color=#D4A04A size=13" if DARK else "color=#8B6914 size=13"
         print(f"💰 {prefix}${sub:.0f}/mo · {t('saved')} {fc(savings)} ({multiplier:.0f}x) | {GOLD}")
         print(f"--{t('api_equiv')}: {fc(tc)} | {ROW2}")
-        if daily_sorted:
-            cutoff_30d = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
-            last_30d = [(d, v) for d, v in daily_sorted if d >= cutoff_30d]
-            if last_30d:
-                n_days = max((datetime.now() - datetime.strptime(last_30d[0][0], "%Y-%m-%d")).days + 1, 1)
-                cost_30d = sum(v["cost"] for _, v in last_30d)
-                daily_avg = cost_30d / n_days
-                monthly_proj = daily_avg * 30
-                print(f"--Daily: {fc(daily_avg)} · Monthly: {fc(monthly_proj)} | {DIM}")
+        if dmin_all:
+            total_days = max((datetime.now() - datetime.strptime(dmin_all, "%Y-%m-%d")).days + 1, 1)
+            daily_avg = tc / total_days
+            monthly_proj = daily_avg * 30
+            print(f"--Daily: {fc(daily_avg)} · Monthly: {fc(monthly_proj)} | {DIM}")
 
     # ═══ 5. MACHINES ═══
     print("---")
