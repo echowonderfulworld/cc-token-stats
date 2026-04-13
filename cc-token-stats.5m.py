@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.1.1"
+VERSION = "1.0.1.2"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -1009,7 +1009,9 @@ def main():
             gauge_items.append(("Opus   ", so))
         eu = usage.get("extra_usage")
         if eu and eu.get("used_credits") is not None:
-            eu_obj = {"utilization": eu.get("utilization") or 0, "resets_at": eu.get("resets_at", "")}
+            # API returns utilization as decimal (0.56 = 0.56%), convert to percentage
+            eu_util = (eu.get("utilization") or 0) * 100
+            eu_obj = {"utilization": eu_util, "resets_at": eu.get("resets_at", "")}
             gauge_items.append(("Extra  ", eu_obj))
 
         # Build lines with uniform ASCII formatting
@@ -1040,9 +1042,9 @@ def main():
                     enabled = eu.get("is_enabled", False)
                     status = "ON" if enabled else "OFF"
                     if spent is not None:
-                        print(f"--Spent: ${spent:.2f} | {ROW2}")
+                        print(f"--Spent: ${spent / 100:.2f} | {ROW2}")
                     if limit is not None:
-                        print(f"--Limit: ${limit:.2f}/mo | {DIM}")
+                        print(f"--Limit: ${limit / 100:.0f}/mo | {DIM}")
                     print(f"--Status: {status} | {DIM}")
                 elif rt_local:
                     print(f"--{t('reset')}: {rt_local} | {DIM}")
