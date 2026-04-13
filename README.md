@@ -20,21 +20,45 @@ Costs, plan limits, trends, user level — all in one click. No app to install, 
 |---------|-------------|
 | **Plan Usage Limits** | Live 5h session & 7d weekly quotas with progress bars from Anthropic API |
 | **Cost & Token Overview** | API-equivalent cost, session count, total tokens |
+| **Today + Trend** | Today's spending with trend vs yesterday (↑12% / ↓58%) |
 | **Subscription ROI** | How much your Pro/Max/Team plan saves vs API pricing |
-| **User Level** | 🌑→🌒→🌓→🌔→🌕→👑 cultivation rank based on multi-dimension scoring |
-| **Today at a Glance** | Today's spending, tokens, and message count |
+| **User Level** | 🌑→🌒→🌓→🌔→🌕→👑 cultivation rank with upgrade hints |
 | **Daily Details** | Full cost history (newest first, older dates expandable) |
 | **Model Breakdown** | Per-model usage (Opus / Sonnet / Haiku) with percentages |
 | **Hourly Activity** | Sparkline charts: `▅▇██▇▄` shows which hours you're most active |
 | **Project Ranking** | Which projects consume the most tokens |
 | **Multi-Machine Sync** | iCloud Drive auto-sync across Macs — zero config |
 | **Usage Alerts** | macOS notifications at 80% and 95% plan limits |
-| **Settings Menu** | Toggle notifications, auto-update, launch at login, switch plan |
 | **Auto-Update** | SHA256-verified updates from GitHub, checks daily |
 | **Incremental Scan** | Caches JSONL parse results, skips unchanged files for instant refresh |
-| **Error Hints** | Friendly status messages when OAuth token missing or API unreachable |
+| **Graceful Errors** | Suppresses transient API failures, only shows hints when truly unavailable |
 | **5 Languages** | EN, 中文, ES, FR, 日本語 — auto-detected from system |
 | **Dark & Light Mode** | Adapts color scheme to macOS appearance |
+
+## Layout
+
+The menu is organized into clear sections:
+
+```
+CC 37%                          ← menu bar: current session utilization
+
+Claude Code Usage Dashboard
+  Session  ▰▰▰▰▱▱▱▱▱▱  37%    ← plan limits with progress bars
+  Weekly   ▰▰▰▰▰▰▰▰▰▱  93%
+── Today ──
+  ⚡ $48.87 · 353 msgs ↓58%    ← today + trend vs yesterday
+── Total (03-02~04-12) ──
+  Cost / Sessions / Tokens      ← cumulative stats
+  💰 Max $100/mo · saved $2,869 (23x)
+── Devices (2 mac · iCloud) ──
+  ● office  $2,089  ○ home $974
+── Details ──
+  Daily / Models / Hours / Projects
+── Level ──
+  🌓 Lv.3 Engineer ▰▰▰▰▰▱▱▱
+Settings                        ← collapsed into submenu
+Refresh / Quit
+```
 
 ## User Level System
 
@@ -64,7 +88,7 @@ curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main
 
 ## Update
 
-Auto-updates daily. Manual update:
+Auto-updates daily with SHA256 verification. Manual update:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main/install.sh | bash -s -- --update
@@ -96,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main
 
 ## Configuration
 
-Edit `~/.config/cc-token-stats/config.json` or use the in-app settings menu:
+Edit `~/.config/cc-token-stats/config.json` or use the in-app Settings menu:
 
 | Key | Description | Default |
 |-----|-------------|---------|
@@ -106,6 +130,7 @@ Edit `~/.config/cc-token-stats/config.json` or use the in-app settings menu:
 | `notifications` | Usage limit alerts | `true` |
 | `auto_update` | Daily update check | `true` |
 | `sync_mode` | `"auto"` / `"off"` | `"auto"` |
+| `machine_labels` | Custom device names, e.g. `{"RL001":"Office"}` | `{}` |
 
 ## Requirements
 
