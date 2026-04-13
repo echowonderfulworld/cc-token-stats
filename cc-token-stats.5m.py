@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.0.4"
+VERSION = "1.0.0.5"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -96,6 +96,19 @@ STRINGS = {
     "output":      {"en":"Output","zh":"输出","es":"Salida","fr":"Sortie","ja":"出力"},
     "cache_w":     {"en":"Cache W","zh":"缓存写","es":"Caché E","fr":"Cache É","ja":"Cache書"},
     "cache_r":     {"en":"Cache R","zh":"缓存读","es":"Caché L","fr":"Cache L","ja":"Cache読"},
+    "overview":    {"en":"Total","zh":"累计","es":"Total","fr":"Total","ja":"累計"},
+    "devices":     {"en":"Devices","zh":"设备","es":"Dispositivos","fr":"Appareils","ja":"デバイス"},
+    "details":     {"en":"Details","zh":"详情","es":"Detalles","fr":"Détails","ja":"詳細"},
+    "level":       {"en":"Level","zh":"等级","es":"Nivel","fr":"Niveau","ja":"レベル"},
+    "next_level":  {"en":"Next","zh":"下一级","es":"Siguiente","fr":"Suivant","ja":"次"},
+    "no_token":    {"en":"⚠ No OAuth token — log in to Claude Code","zh":"⚠ 未找到 OAuth token — 请登录 Claude Code","es":"⚠ Sin token OAuth — inicie sesión en Claude Code","fr":"⚠ Pas de token OAuth — connectez-vous à Claude Code","ja":"⚠ OAuthトークンなし — Claude Codeにログイン"},
+    "api_error":   {"en":"⚠ Cannot reach Anthropic API","zh":"⚠ 无法连接 Anthropic API","es":"⚠ No se puede conectar a la API","fr":"⚠ API Anthropic inaccessible","ja":"⚠ Anthropic APIに接続できません"},
+    "first_use":   {"en":"Start a Claude Code session to see stats","zh":"启动 Claude Code 会话以查看统计","es":"Inicie una sesión de Claude Code","fr":"Démarrez une session Claude Code","ja":"Claude Codeセッションを開始してください"},
+    "dim_usage":   {"en":"Usage","zh":"使用深度","es":"Uso","fr":"Utilisation","ja":"使用量"},
+    "dim_context": {"en":"Context","zh":"上下文","es":"Contexto","fr":"Contexte","ja":"コンテキスト"},
+    "dim_tools":   {"en":"Tools","zh":"工具生态","es":"Herramientas","fr":"Outils","ja":"ツール"},
+    "dim_auto":    {"en":"Automation","zh":"自动化","es":"Automatización","fr":"Automatisation","ja":"自動化"},
+    "dim_scale":   {"en":"Scale","zh":"规模化","es":"Escala","fr":"Échelle","ja":"スケール"},
 }
 
 def t(key):
@@ -187,7 +200,7 @@ def calc_user_level():
     try:
         if LEVEL_CACHE_FILE.is_file():
             _lc = json.loads(LEVEL_CACHE_FILE.read_text())
-            if _lc.get("date") == today_str:
+            if _lc.get("date") == today_str and _lc.get("ver") == VERSION:
                 return _lc["score"], _lc["level"], _lc["details"]
     except Exception: pass
 
@@ -316,7 +329,7 @@ def calc_user_level():
         if total >= threshold: lvl = i
     try:
         LEVEL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        LEVEL_CACHE_FILE.write_text(json.dumps({"date": today_str, "score": total, "level": lvl, "details": details}))
+        LEVEL_CACHE_FILE.write_text(json.dumps({"date": today_str, "ver": VERSION, "score": total, "level": lvl, "details": details}))
     except Exception: pass
     return total, lvl, details
 
@@ -975,16 +988,12 @@ def main():
     # ═══ 1b. USAGE STATUS HINTS ═══
     HINT = "color=#888888 size=11"
     if not usage and usage_err:
-        if usage_err == "no_token":
-            hint = "⚠ No OAuth token — log in to Claude Code" if LANG != "zh" else "⚠ 未找到 OAuth token — 请登录 Claude Code"
-        else:
-            hint = "⚠ Cannot reach Anthropic API" if LANG != "zh" else "⚠ 无法连接 Anthropic API"
+        hint = t("no_token") if usage_err == "no_token" else t("api_error")
         print(f"{hint} | {HINT}")
 
     # ═══ 1c. FIRST-USE GUIDE ═══
     if ts == 0:
-        guide_text = "Start a Claude Code session to see stats" if LANG != "zh" else "启动 Claude Code 会话以查看统计"
-        print(f"{guide_text} | {HINT}")
+        print(f"{t('first_use')} | {HINT}")
 
     # Section title style
     ST = "color=#6B6560 size=11" if DARK else "color=#3C4050 size=11"
@@ -1021,7 +1030,7 @@ def main():
     dmin_all = min((m["d_min"] for m in machines if m["d_min"]), default=None)
     dmax_all = max((m["d_max"] for m in machines if m["d_max"]), default=None)
     rng_label = f"{dmin_all[5:]}~{dmax_all[5:]}" if dmin_all and dmax_all else ""
-    overview_title = "累计" if LANG == "zh" else "Total"
+    overview_title = t("overview")
     if rng_label:
         print(f"── {overview_title} ({rng_label}) ── | {ST}")
     else:
@@ -1060,7 +1069,7 @@ def main():
 
     # ═══ 5. MACHINES ═══
     print("---")
-    devices_label = "设备" if LANG == "zh" else "Devices"
+    devices_label = t("devices")
     if machine_count > 1:
         sync_str = {"icloud": "iCloud", "custom": "Custom"}.get(SYNC_TYPE, "")
         suffix = f" ({machine_count} mac · {sync_str})" if sync_str else f" ({machine_count} mac)"
@@ -1083,7 +1092,7 @@ def main():
                 _sync_dt = datetime.strptime(m["at"], "%Y-%m-%d %H:%M:%S")
                 _sync_age = (datetime.now() - _sync_dt).days
                 if _sync_age >= 7:
-                    stale_tag = f" ({_sync_age}d)" if LANG != "zh" else f" ({_sync_age}天前)"
+                    stale_tag = f" ({_sync_age}d)"
             except Exception: pass
             print(f"--{t('synced')} {m['at']}{stale_tag} | {DIM}")
         print(f"--Token: {tk(ma)} · Sessions: {m['sessions']} | {ROW2}")
@@ -1108,7 +1117,7 @@ def main():
 
     # Section header style
     SH = "color=#5CC6A7 size=12" if DARK else "color=#1A5C4C size=12"
-    details_label = "详情" if LANG == "zh" else "Details"
+    details_label = t("details")
     print(f"── {details_label} ── | {ST}")
 
     # ── Daily Details (newest first, max 15 visible, older folded) ──
@@ -1182,7 +1191,7 @@ def main():
 
     # ═══ USER LEVEL ═══
     print("---")
-    level_title = "等级" if LANG == "zh" else "Level"
+    level_title = t("level")
     print(f"── {level_title} ── | {ST}")
     try:
         _score, _lvl, _det = calc_user_level()
@@ -1200,11 +1209,9 @@ def main():
         print(f"{_icon} Lv.{_lvl+1} {_name} {_exp_bar} | {SEC}")
 
         # Submenu: dimension breakdown
-        dim_names = {"usage": "使用深度" if LANG == "zh" else "Usage",
-                     "context": "上下文" if LANG == "zh" else "Context",
-                     "tools": "工具生态" if LANG == "zh" else "Tools",
-                     "automation": "自动化" if LANG == "zh" else "Automation",
-                     "scale": "规模化" if LANG == "zh" else "Scale"}
+        dim_names = {"usage": t("dim_usage"), "context": t("dim_context"),
+                     "tools": t("dim_tools"), "automation": t("dim_auto"),
+                     "scale": t("dim_scale")}
         for k, label in dim_names.items():
             v = _det.get(k, 0)
             b = bar(v, 20, 5)
@@ -1214,7 +1221,7 @@ def main():
             _gap = _next_threshold - _score
             _next_icon = LEVELS[_lvl + 1][1]
             _next_name = LEVELS[_lvl + 1][3] if LANG == "zh" else LEVELS[_lvl + 1][2]
-            next_label = "下一级" if LANG == "zh" else "Next"
+            next_label = t("next_level")
             print(f"--{next_label}: {_next_icon} Lv.{_lvl+2} {_next_name} (+{_gap}) | {DIM}")
     except Exception: pass
 
