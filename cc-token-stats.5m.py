@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.0.0.5"
+VERSION = "1.0.0.6"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess
@@ -109,6 +109,7 @@ STRINGS = {
     "dim_tools":   {"en":"Tools","zh":"工具生态","es":"Herramientas","fr":"Outils","ja":"ツール"},
     "dim_auto":    {"en":"Automation","zh":"自动化","es":"Automatización","fr":"Automatisation","ja":"自動化"},
     "dim_scale":   {"en":"Scale","zh":"规模化","es":"Escala","fr":"Échelle","ja":"スケール"},
+    "burn_rate":   {"en":"~{0}min to rate limit","zh":"约{0}分钟后限速","es":"~{0}min al límite","fr":"~{0}min avant limite","ja":"約{0}分で制限"},
 }
 
 def t(key):
@@ -347,6 +348,15 @@ def bar(val, maxval, width=12):
 
 # ─── Notifications ───────────────────────────────────────────────
 
+def _notify(title, msg):
+    """Send a macOS notification."""
+    try:
+        subprocess.run([
+            "osascript", "-e",
+            f'display notification "{msg}" with title "{title}" subtitle "cc-token-status"'
+        ], timeout=5)
+    except Exception: pass
+
 def check_and_notify(usage):
     """Send macOS notification when limits cross 80% or 95%. Once per threshold per reset cycle."""
     if not CFG.get("notifications", True) or not usage:
@@ -362,6 +372,8 @@ def check_and_notify(usage):
     checks = [
         ("Session", "five_hour"),
         ("Weekly", "seven_day"),
+        ("Sonnet", "seven_day_sonnet"),
+        ("Opus", "seven_day_opus"),
     ]
     current_keys = set()
     changed = False
@@ -377,25 +389,57 @@ def check_and_notify(usage):
             current_keys.add(state_key)
             if util >= thresh and state_key not in state:
                 if thresh >= 95:
-                    title = f"⛔ {name} {util:.0f}%"
-                    msg = t("limit_crit")
+                    _notify(f"⛔ {name} {util:.0f}%", t("limit_crit"))
                 else:
-                    title = f"⚠️ {name} {util:.0f}%"
-                    msg = t("limit_warn")
-                try:
-                    subprocess.run([
-                        "osascript", "-e",
-                        f'display notification "{msg}" with title "{title}" subtitle "cc-token-status"'
-                    ], timeout=5)
-                except Exception: pass
+                    _notify(f"⚠️ {name} {util:.0f}%", t("limit_warn"))
                 state[state_key] = datetime.now().isoformat()
                 changed = True
 
-    # Cleanup: remove old entries from past reset cycles
-    old_keys = [k for k in state if k not in current_keys]
-    if old_keys:
-        for k in old_keys: del state[k]
-        changed = True
+    # Burn rate warning: if session >50% and will hit 100% within 30 min at current pace
+    fh = usage.get("five_hour")
+    if fh and fh.get("utilization") is not None and fh["utilization"] >= 50:
+        try:
+            reset_str = fh.get("resets_at", "")
+            if reset_str:
+                rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00"))
+                now_aware = datetime.now().astimezone()
+                remaining_min = (rt - now_aware).total_seconds() / 60
+                util = fh["utilization"]
+                # Estimate time to 100%: if util% used in (300-remaining) minutes,
+                # rate = util / elapsed, time_to_100 = (100-util) / rate
+                elapsed_min = max(300 - remaining_min, 1)  # 5h = 300min
+                rate = util / elapsed_min  # % per minute
+                if rate > 0:
+                    min_to_full = (100 - util) / rate
+                    burn_key = f"burn_{reset_str[:16]}"
+                    if min_to_full <= 30 and burn_key not in state:
+                        _notify(
+                            f"🔥 Session {util:.0f}%",
+                            t("burn_rate").format(int(min_to_full))
+                        )
+                        state[burn_key] = datetime.now().isoformat()
+                        changed = True
+                    current_keys.add(burn_key)
+        except Exception: pass
+
+    # Cleanup: remove entries whose reset time has passed (not just missing from current check)
+    now_str = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    old_keys = [k for k in state if k not in current_keys and not k.startswith("burn_")]
+    # For non-burn keys: only remove if the reset time in the key is in the past
+    for k in list(state.keys()):
+        if k in current_keys: continue
+        # Extract reset timestamp from key (last 16 chars after last _)
+        parts = k.rsplit("_", 1)
+        if len(parts) == 2 and len(parts[1]) >= 16:
+            if parts[1] < now_str:
+                del state[k]
+                changed = True
+        elif k.startswith("burn_") and k not in current_keys:
+            # Burn key from past cycle
+            burn_reset = k[5:]  # "burn_2026-04-11T06:00"
+            if burn_reset < now_str:
+                del state[k]
+                changed = True
 
     if changed:
         try:
