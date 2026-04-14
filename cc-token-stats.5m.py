@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.1.0.0"
+VERSION = "1.1.0.1"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -930,28 +930,30 @@ def generate_dashboard():
     return str(DASHBOARD_FILE)
 
 def _build_dashboard_html(payload):
-    """Build self-contained HTML string for dashboard. All data comes from trusted local caches."""
-    return f"""<!DOCTYPE html>
+    """Build self-contained HTML string for dashboard. All data comes from trusted local caches.
+    Uses string.replace() instead of f-string to avoid brace escaping nightmares with JS."""
+    # Template uses __DATA__ as the only placeholder — no f-string, so JS braces are safe
+    template = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Claude Code Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif}}
-.header{{padding:24px 32px 8px;display:flex;justify-content:space-between;align-items:baseline}}
-.header h1{{font-size:22px;color:#e6edf3;font-weight:600}}.header .meta{{color:#8b949e;font-size:12px}}
-.grid{{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;padding:16px 32px 32px;max-width:1440px;margin:0 auto}}
-.card{{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px}}
-.s3{{grid-column:span 3}}.s4{{grid-column:span 4}}.s6{{grid-column:span 6}}.s8{{grid-column:span 8}}.s12{{grid-column:span 12}}
-.kpi{{text-align:center}}.kpi .v{{font-size:28px;font-weight:700;color:#e6edf3;margin:8px 0 4px}}
-.kpi .l{{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}}
-.kpi .s{{font-size:12px;color:#8b949e;margin-top:2px}}
-.kpi.c1 .v{{color:#58d4ab}}.kpi.c2 .v{{color:#58a6ff}}.kpi.c3 .v{{color:#d4a04a}}.kpi.c4 .v{{color:#3fb950}}
-.ch{{width:100%;height:280px}}.cht{{width:100%;height:320px}}
-h3{{font-size:13px;color:#8b949e;font-weight:500;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}}
-.empty{{color:#484f58;text-align:center;padding-top:100px}}
-@media(max-width:900px){{.grid{{grid-template-columns:repeat(6,1fr)}}.s3{{grid-column:span 3}}.s8,.s6,.s4{{grid-column:span 6}}}}
-@media(max-width:600px){{.grid{{grid-template-columns:1fr;padding:12px}}.s3,.s4,.s6,.s8,.s12{{grid-column:span 1}}}}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif}
+.header{padding:24px 32px 8px;display:flex;justify-content:space-between;align-items:baseline}
+.header h1{font-size:22px;color:#e6edf3;font-weight:600}.header .meta{color:#8b949e;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;padding:16px 32px 32px;max-width:1440px;margin:0 auto}
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px}
+.s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}.s8{grid-column:span 8}.s12{grid-column:span 12}
+.kpi{text-align:center}.kpi .v{font-size:28px;font-weight:700;color:#e6edf3;margin:8px 0 4px}
+.kpi .l{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
+.kpi .s{font-size:12px;color:#8b949e;margin-top:2px}
+.kpi.c1 .v{color:#58d4ab}.kpi.c2 .v{color:#58a6ff}.kpi.c3 .v{color:#d4a04a}.kpi.c4 .v{color:#3fb950}
+.ch{width:100%;height:280px}.cht{width:100%;height:320px}
+h3{font-size:13px;color:#8b949e;font-weight:500;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
+.empty{color:#484f58;text-align:center;padding-top:100px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(6,1fr)}.s3{grid-column:span 3}.s8,.s6,.s4{grid-column:span 6}}
+@media(max-width:600px){.grid{grid-template-columns:1fr;padding:12px}.s3,.s4,.s6,.s8,.s12{grid-column:span 1}}
 </style></head><body>
 <div class="header"><h1 id="T"></h1><span class="meta" id="G"></span></div>
 <div class="grid">
@@ -967,18 +969,18 @@ h3{{font-size:13px;color:#8b949e;font-weight:500;margin-bottom:12px;text-transfo
 <div class="card s6"><h3 id="h6"></h3><div id="c6" class="ch"></div></div>
 </div>
 <script>
-const D={payload};
+const D=__DATA__;
 const zh=D.lang==='zh';
-const t=k=>({{title:zh?'Claude Code 可视化面板':'Claude Code Dashboard',today:zh?'今日费用':'Today',
+const t=k=>({title:zh?'Claude Code 可视化面板':'Claude Code Dashboard',today:zh?'今日费用':'Today',
 total:zh?'累计费用':'Total Cost',sessions:zh?'会话数':'Sessions',roi:'ROI',
 daily:zh?'每日费用趋势':'Daily Cost Trend',model:zh?'模型分布':'Model Distribution',
 hourly:zh?'活跃时段':'Hourly Activity',project:zh?'项目排行':'Top Projects',
 limits:zh?'用量限额':'Rate Limits',machines:zh?'设备':'Machines',
-msgs:zh?'消息':'msgs',days:zh?'天':'days'}})[k]||k;
-const fc=n=>n>=1e4?'$'+n.toLocaleString('en',{{maximumFractionDigits:0}}):'$'+n.toFixed(2);
-const C={{p:'#58a6ff',t:'#58d4ab',g:'#d4a04a',d:'#f85149',w:'#d29922',op:'#a371f7',sn:'#58a6ff',hk:'#3fb950',m:'#484f58'}};
-const tt={{backgroundColor:'#1c2128',borderColor:'#30363d',textStyle:{{color:'#c9d1d9'}}}};
-const ax={{axisLine:{{lineStyle:{{color:'#30363d'}}}},splitLine:{{lineStyle:{{color:'#21262d'}}}},axisLabel:{{color:'#8b949e',fontSize:11}}}};
+msgs:zh?'消息':'msgs',days:zh?'天':'days'})[k]||k;
+const fc=n=>n>=1e4?'$'+n.toLocaleString('en',{maximumFractionDigits:0}):'$'+n.toFixed(2);
+const C={p:'#58a6ff',t:'#58d4ab',g:'#d4a04a',d:'#f85149',w:'#d29922',op:'#a371f7',sn:'#58a6ff',hk:'#3fb950',m:'#484f58'};
+const tt={backgroundColor:'#1c2128',borderColor:'#30363d',textStyle:{color:'#c9d1d9'}};
+const ax={axisLine:{lineStyle:{color:'#30363d'}},splitLine:{lineStyle:{color:'#21262d'}},axisLabel:{color:'#8b949e',fontSize:11}};
 
 document.getElementById('T').textContent=t('title');
 document.getElementById('G').textContent=D.generated;
@@ -989,79 +991,80 @@ document.getElementById('k2l').textContent=t('total');
 document.getElementById('k2v').textContent=fc(D.total.cost);
 document.getElementById('k2s').textContent=Object.keys(D.daily).length+' '+t('days');
 document.getElementById('k3l').textContent=t('roi');
-if(D.roi.multiplier){{document.getElementById('k3v').textContent=D.roi.multiplier+'x';document.getElementById('k3s').textContent=fc(D.roi.cost)+' / $'+D.roi.paid;}}
-else{{document.getElementById('k3v').textContent='\\u2014';document.getElementById('k3s').textContent='';}}
+if(D.roi.multiplier){document.getElementById('k3v').textContent=D.roi.multiplier+'x';document.getElementById('k3s').textContent=fc(D.roi.cost)+' / $'+D.roi.paid;}
+else{document.getElementById('k3v').textContent='\u2014';document.getElementById('k3s').textContent='';}
 document.getElementById('k4l').textContent=t('sessions');
 document.getElementById('k4v').textContent=D.total.sessions.toLocaleString();
 document.getElementById('k4s').textContent=D.machines.length+' '+t('machines');
 
 document.getElementById('h1').textContent=t('daily');
 const dd=Object.keys(D.daily),dv=Object.values(D.daily);
-echarts.init(document.getElementById('c1')).setOption({{
-tooltip:{{...tt,trigger:'axis',formatter:p=>p[0].name+'<br/>'+fc(p[0].value)}},
-xAxis:{{type:'category',data:dd,...ax,axisLabel:{{...ax.axisLabel,formatter:v=>v.slice(5)}}}},
-yAxis:{{type:'value',...ax,axisLabel:{{...ax.axisLabel,formatter:v=>'$'+v}}}},
-series:[{{type:'line',data:dv,smooth:true,symbol:'none',lineStyle:{{color:C.t,width:2}},
-areaStyle:{{color:new echarts.graphic.LinearGradient(0,0,0,1,[{{offset:0,color:'rgba(88,212,171,0.25)'}},{{offset:1,color:'rgba(88,212,171,0.02)'}}])}},
-itemStyle:{{color:C.t}}}}],
-dataZoom:[{{type:'inside'}},{{type:'slider',height:20,bottom:0,borderColor:'#30363d',backgroundColor:'#161b22',
-fillerColor:'rgba(88,212,171,0.1)',handleStyle:{{color:'#58d4ab'}},textStyle:{{color:'#8b949e'}}}}],
-grid:{{left:50,right:16,top:10,bottom:40}}}});
+echarts.init(document.getElementById('c1')).setOption({
+tooltip:{...tt,trigger:'axis',formatter:p=>p[0].name+'<br/>'+fc(p[0].value)},
+xAxis:{type:'category',data:dd,...ax,axisLabel:{...ax.axisLabel,formatter:v=>v.slice(5)}},
+yAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
+series:[{type:'line',data:dv,smooth:true,symbol:'none',lineStyle:{color:C.t,width:2},
+areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(88,212,171,0.25)'},{offset:1,color:'rgba(88,212,171,0.02)'}])},
+itemStyle:{color:C.t}}],
+dataZoom:[{type:'inside'},{type:'slider',height:20,bottom:0,borderColor:'#30363d',backgroundColor:'#161b22',
+fillerColor:'rgba(88,212,171,0.1)',handleStyle:{color:'#58d4ab'},textStyle:{color:'#8b949e'}}],
+grid:{left:50,right:16,top:10,bottom:40}});
 
 document.getElementById('h2').textContent=t('model');
-const mc={{}};Object.keys(D.models).forEach(k=>{{const l=k.toLowerCase();mc[k]=l.includes('opus')?C.op:l.includes('haiku')?C.hk:C.sn;}});
-echarts.init(document.getElementById('c2')).setOption({{
-tooltip:{{...tt,formatter:p=>p.name+': '+fc(p.value)+' ('+p.percent+'%)'}},
-series:[{{type:'pie',radius:['42%','70%'],center:['50%','55%'],
-label:{{color:'#c9d1d9',fontSize:11,formatter:'{{b}}\\n{{d}}%'}},
-data:Object.entries(D.models).map(([k,v])=>({{name:k,value:v,itemStyle:{{color:mc[k]||C.m}}}}))}}]}});
+const mc={};Object.keys(D.models).forEach(k=>{const l=k.toLowerCase();mc[k]=l.includes('opus')?C.op:l.includes('haiku')?C.hk:C.sn;});
+echarts.init(document.getElementById('c2')).setOption({
+tooltip:{...tt,formatter:p=>p.name+': '+fc(p.value)+' ('+p.percent+'%)'},
+series:[{type:'pie',radius:['42%','70%'],center:['50%','55%'],
+label:{color:'#c9d1d9',fontSize:11,formatter:'{b}\n{d}%'},
+data:Object.entries(D.models).map(([k,v])=>({name:k,value:v,itemStyle:{color:mc[k]||C.m}}))}]});
 
 document.getElementById('h3').textContent=t('hourly');
-const hrs=Array.from({{length:24}},(_,i)=>String(i).padStart(2,'0'));
+const hrs=Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
 const hv=hrs.map(h=>D.hourly[String(parseInt(h))]||0);
-echarts.init(document.getElementById('c3')).setOption({{
-tooltip:{{...tt,formatter:p=>p.name+':00 \\u2014 '+p.value+' '+t('msgs')}},
-xAxis:{{type:'category',data:hrs.map(h=>h+':00'),...ax,axisLabel:{{...ax.axisLabel,interval:2}}}},
-yAxis:{{type:'value',...ax}},
-series:[{{type:'bar',data:hv.map(v=>({{value:v,itemStyle:{{color:v>0?C.p:C.m,borderRadius:[3,3,0,0]}}}})),barWidth:'60%'}}],
-grid:{{left:40,right:16,top:10,bottom:30}}}});
+echarts.init(document.getElementById('c3')).setOption({
+tooltip:{...tt,formatter:p=>p.name+':00 \u2014 '+p.value+' '+t('msgs')},
+xAxis:{type:'category',data:hrs.map(h=>h+':00'),...ax,axisLabel:{...ax.axisLabel,interval:2}},
+yAxis:{type:'value',...ax},
+series:[{type:'bar',data:hv.map(v=>({value:v,itemStyle:{color:v>0?C.p:C.m,borderRadius:[3,3,0,0]}})),barWidth:'60%'}],
+grid:{left:40,right:16,top:10,bottom:30}});
 
 document.getElementById('h4').textContent=t('project');
 const pe=Object.entries(D.projects).slice(0,10),pn=pe.map(e=>e[0]).reverse(),pc=pe.map(e=>e[1]).reverse();
-echarts.init(document.getElementById('c4')).setOption({{
-tooltip:{{...tt,formatter:p=>p.name+': '+fc(p.value)}},
-xAxis:{{type:'value',...ax,axisLabel:{{...ax.axisLabel,formatter:v=>'$'+v}}}},
-yAxis:{{type:'category',data:pn,...ax,axisLabel:{{...ax.axisLabel,width:80,overflow:'truncate'}}}},
-series:[{{type:'bar',data:pc,barWidth:'60%',itemStyle:{{color:C.g,borderRadius:[0,4,4,0]}},
-label:{{show:true,position:'right',color:'#8b949e',fontSize:10,formatter:p=>fc(p.value)}}}}],
-grid:{{left:90,right:60,top:10,bottom:20}}}});
+echarts.init(document.getElementById('c4')).setOption({
+tooltip:{...tt,formatter:p=>p.name+': '+fc(p.value)},
+xAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
+yAxis:{type:'category',data:pn,...ax,axisLabel:{...ax.axisLabel,width:80,overflow:'truncate'}},
+series:[{type:'bar',data:pc,barWidth:'60%',itemStyle:{color:C.g,borderRadius:[0,4,4,0]},
+label:{show:true,position:'right',color:'#8b949e',fontSize:10,formatter:p=>fc(p.value)}}],
+grid:{left:90,right:60,top:10,bottom:20}});
 
 document.getElementById('h5').textContent=t('limits');
-const ln={{five_hour:'Session (5h)',seven_day:'Weekly (7d)',seven_day_sonnet:'Sonnet',seven_day_opus:'Opus'}};
+const ln={five_hour:'Session (5h)',seven_day:'Weekly (7d)',seven_day_sonnet:'Sonnet',seven_day_opus:'Opus'};
 const le=Object.entries(D.limits);
-if(le.length>0){{const gd=le.map(([k,v])=>({{name:ln[k]||k,value:Math.round(v.util)}}));
-echarts.init(document.getElementById('c5')).setOption({{
-series:gd.map((g,i)=>({{type:'gauge',startAngle:200,endAngle:-20,
+if(le.length>0){const gd=le.map(([k,v])=>({name:ln[k]||k,value:Math.round(v.util)}));
+echarts.init(document.getElementById('c5')).setOption({
+series:gd.map((g,i)=>({type:'gauge',startAngle:200,endAngle:-20,
 center:[(i%2===0?'28%':'72%'),(i<2?'40%':'88%')],radius:'42%',min:0,max:100,
-axisLine:{{lineStyle:{{width:12,color:[[.6,C.t],[.8,C.w],[1,C.d]]}}}},
-pointer:{{show:false}},axisTick:{{show:false}},splitLine:{{show:false}},axisLabel:{{show:false}},
-progress:{{show:true,width:12,roundCap:true}},
-detail:{{fontSize:20,color:'#e6edf3',offsetCenter:[0,'-5%'],formatter:'{{value}}%'}},
-title:{{fontSize:11,color:'#8b949e',offsetCenter:[0,'25%']}},data:[g]}})))
-}});}}else{{document.getElementById('c5').textContent='No rate limit data';document.getElementById('c5').className='empty';}}
+axisLine:{lineStyle:{width:12,color:[[.6,C.t],[.8,C.w],[1,C.d]]}},
+pointer:{show:false},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},
+progress:{show:true,width:12,roundCap:true},
+detail:{fontSize:20,color:'#e6edf3',offsetCenter:[0,'-5%'],formatter:'{value}%'},
+title:{fontSize:11,color:'#8b949e',offsetCenter:[0,'25%']},data:[g]}))
+});}else{document.getElementById('c5').textContent='No rate limit data';document.getElementById('c5').className='empty';}
 
 document.getElementById('h6').textContent=t('machines');
-if(D.machines.length>1){{echarts.init(document.getElementById('c6')).setOption({{
-tooltip:{{...tt}},
-xAxis:{{type:'category',data:D.machines.map(m=>m.name),...ax}},
-yAxis:{{type:'value',...ax,axisLabel:{{...ax.axisLabel,formatter:v=>'$'+v}}}},
-series:[{{type:'bar',data:D.machines.map(m=>({{value:m.cost,itemStyle:{{color:C.t,borderRadius:[4,4,0,0]}}}})),
-barWidth:'50%',label:{{show:true,position:'top',color:'#8b949e',fontSize:11,formatter:p=>fc(p.value)}}}}],
-grid:{{left:50,right:16,top:30,bottom:30}}}});}}
-else{{document.getElementById('c6').textContent='Single machine';document.getElementById('c6').className='empty';}}
+if(D.machines.length>1){echarts.init(document.getElementById('c6')).setOption({
+tooltip:{...tt},
+xAxis:{type:'category',data:D.machines.map(m=>m.name),...ax},
+yAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
+series:[{type:'bar',data:D.machines.map(m=>({value:m.cost,itemStyle:{color:C.t,borderRadius:[4,4,0,0]}})),
+barWidth:'50%',label:{show:true,position:'top',color:'#8b949e',fontSize:11,formatter:p=>fc(p.value)}}],
+grid:{left:50,right:16,top:30,bottom:30}});}
+else{document.getElementById('c6').textContent='Single machine';document.getElementById('c6').className='empty';}
 
-window.addEventListener('resize',()=>{{document.querySelectorAll('.ch,.cht').forEach(el=>{{const c=echarts.getInstanceByDom(el);if(c)c.resize();}});}});
+window.addEventListener('resize',()=>{document.querySelectorAll('.ch,.cht').forEach(el=>{const c=echarts.getInstanceByDom(el);if(c)c.resize();});});
 </script></body></html>"""
+    return template.replace("__DATA__", payload)
 
 # ─── Render ──────────────────────────────────────────────────────
 
