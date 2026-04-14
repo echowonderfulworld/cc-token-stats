@@ -1595,10 +1595,77 @@ def main():
     # Helper script path (defined early — used by Details and Settings)
     helper = str(Path.home() / ".config" / "cc-token-stats" / ".toggle.sh")
 
-    # ── Details → Dashboard report link ──
+    # ── Details ──
+    SH = "color=#5CC6A7 size=12" if DARK else "color=#1A5C4C size=12"
     details_label = t("details")
     print(f"── {details_label} ── | {ST}")
-    print(f"{t('report')} | bash={helper} param1=dashboard terminal=false")
+
+    # Daily Details (newest first, max 15 visible, older folded)
+    all_total_cost = sum(v["cost"] for v in daily.values())
+    all_total_msgs = sum(v["msgs"] for v in daily.values())
+    active_days = [(d, v) for d, v in reversed(daily_sorted) if v["msgs"] > 0]
+    print(f"{t('daily')} | {SH}")
+    all_total_tokens = sum(v["tokens"] for v in daily.values())
+    for date, data in active_days[:15]:
+        dd = date[5:]
+        print(f"--{dd}   {fc(data['cost']):>8}   {tk(data['tokens']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+    if len(active_days) > 15:
+        older = active_days[15:]
+        older_cost = sum(v["cost"] for _, v in older)
+        older_tokens = sum(v["tokens"] for _, v in older)
+        older_msgs = sum(v["msgs"] for _, v in older)
+        print(f"--{t('older')} ({len(older)}d) {fc(older_cost)} · {tk(older_tokens)} · {older_msgs} msgs | {DIM}")
+        for date, data in older:
+            dd = date[5:]
+            print(f"----{dd}   {fc(data['cost']):>8}   {tk(data['tokens']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+    print("-----")
+    total_label = t("total")
+    print(f"--{total_label}   {fc(all_total_cost):>8}   {tk(all_total_tokens):>8}   {all_total_msgs:>5} msgs | {DIM}")
+
+    # Models
+    print(f"{t('models')} | {SH}")
+    for model, data in sorted(all_models.items(), key=lambda x: -x[1]["cost"]):
+        short = MODEL_SHORT.get(model, model)
+        pct = data["msgs"] / total_model_msgs * 100
+        print(f"--{short:<12} {pct:>3.0f}%   {fc(data['cost']):>8}   {data['msgs']:>6,} msgs | {ROW2}")
+
+    # Hourly Activity
+    hourly_local = local["hourly"]
+    if hourly_local:
+        print(f"{t('hours')} | {SH}")
+        total_hourly = max(sum(hourly_local.values()), 1)
+        max_h = max(hourly_local.values()) if hourly_local else 1
+        sparks = " ▁▂▃▄▅▆▇█"
+        def spark(h):
+            v = hourly_local.get(h, 0)
+            if v == 0: return "▁"
+            level = min(int(v / max_h * 8) + 1, 8)
+            return sparks[level]
+        block_defs = [
+            (t("am"),   "06–12", range(6, 12)),
+            (t("pm"),   "12–18", range(12, 18)),
+            (t("eve"),  "18–24", range(18, 24)),
+            (t("late"), "00–06", range(0, 6)),
+        ]
+        for label, time_str, hours_range in block_defs:
+            count = sum(hourly_local.get(h, 0) for h in hours_range)
+            if count == 0: continue
+            pct = count / total_hourly * 100
+            sparkline = "".join(spark(h) for h in hours_range)
+            msgs_u = t("msgs")
+            print(f"--{label} {time_str}  {sparkline}  {count:>5,} {msgs_u} {pct:>2.0f}% | {ROW2}")
+
+    # Top Projects
+    projects_local = dict(local["projects"])
+    if projects_local:
+        print(f"{t('projects')} | {SH}")
+        top = sorted(projects_local.items(), key=lambda x: -x[1]["cost"])[:8]
+        for name, data in top:
+            short_name = f"{name[:14]:<14}" if len(name) <= 14 else f"{name[:13]}…"
+            print(f"--{short_name}  {fc(data['cost']):>8}   {tk(data['tokens']):>8}   {data['msgs']:>5} msgs | {ROW2}")
+
+    # Dashboard link
+    print(f"{t('report')} | bash={helper} param1=dashboard terminal=false {SH}")
 
     # ═══ USER LEVEL ═══
     print("---")
