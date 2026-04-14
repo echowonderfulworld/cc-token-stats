@@ -18,9 +18,13 @@
 </p>
 
 <p align="center">
-  <img src=".github/screenshot-zh.png" height="700" alt="中文" />
+  <img src=".github/screenshot-zh.png" height="600" alt="中文" />
   &nbsp;&nbsp;
-  <img src=".github/screenshot-en.png" height="700" alt="English" />
+  <img src=".github/screenshot-en.png" height="600" alt="English" />
+</p>
+
+<p align="center">
+  <img src=".github/screenshot-dashboard.png" width="800" alt="Dashboard" />
 </p>
 
 ## Quick Install
@@ -52,6 +56,7 @@ No dependencies to install manually. SwiftBar is auto-installed if missing.
 | **Today + Trend** | Today's spending with trend vs 30-day active-day average (↑12% when above average) |
 | **Subscription ROI** | How much your Pro/Max/Team plan saves vs API pricing, with daily/monthly projections |
 | **User Level** | 🌑→🌒→🌓→🌔→🌕→👑 rank with progress bar and upgrade hints |
+| **Visual Dashboard** | Click to open 12-panel ECharts report in browser: cost trend, model distribution, hourly activity, project ranking, token composition, rate limit gauges, machine comparison, daily detail table |
 | **Daily Details** | Full cost history (newest first, older dates collapsible) |
 | **Model Breakdown** | Per-model usage (Opus / Sonnet / Haiku) with percentages |
 | **Hourly Activity** | Sparkline charts: `▅▇██▇▄` shows which hours you're most active |
@@ -101,9 +106,10 @@ Scored across 5 dimensions (100 points total):
 ```
 
 - **Token & cost** — scans Claude Code JSONL session logs with incremental caching (only re-parses changed files), calculates API-equivalent cost with official Anthropic pricing
-- **Plan limits** — reads OAuth token from macOS Keychain, queries `api.anthropic.com/api/oauth/usage` with smart caching (4-min fresh + 30-min stale fallback)
+- **Plan limits** — reads OAuth token from macOS Keychain, queries `api.anthropic.com/api/oauth/usage` with smart caching (4-min fresh + 2-hour stale fallback, HTTP 429 graceful degradation)
 - **Auto-update** — downloads new versions from GitHub, verifies SHA256 checksum before replacing plugin file
 - **Multi-machine sync** — writes stats to iCloud Drive, reads other machines' data automatically
+- **Dashboard** — generates self-contained HTML with embedded ECharts, opens in browser (12 panels, all data from local caches)
 - **Refresh** — SwiftBar executes the plugin every 5 minutes
 
 ## Pricing
@@ -129,7 +135,6 @@ Edit `~/.config/cc-token-stats/config.json` or use the in-app Settings menu:
 | `auto_update` | Daily update check | `true` |
 | `sync_mode` | `"auto"` / `"off"` | `"auto"` |
 | `machine_labels` | Custom device names, e.g. `{"RL001":"Office"}` | `{}` |
-| `menu_bar_icon` | SwiftBar icon style | `"sfSymbol=sparkles.rectangle.stack"` |
 
 ## Update
 
