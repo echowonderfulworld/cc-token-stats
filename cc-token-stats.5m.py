@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.1.0.1"
+VERSION = "1.1.1.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -810,12 +810,25 @@ def save_sync(st):
     try:
         os.makedirs(d, exist_ok=True)
         mb = {m: {**v, "cost": round(v["cost"], 2)} for m, v in st.get("models", {}).items()}
+        # Daily: {date: {cost, msgs, tokens}}
+        daily = {k: {"cost": round(v["cost"], 2), "msgs": v["msgs"], "tokens": v["tokens"]}
+                 for k, v in st.get("daily", {}).items() if v.get("cost", 0) > 0 or v.get("msgs", 0) > 0}
+        # Hourly: {hour: count}
+        hourly = {str(k): v for k, v in st.get("hourly", {}).items() if v > 0}
+        # Projects: {name: {cost, msgs, tokens}}
+        projects = {k: {"cost": round(v["cost"], 2), "msgs": v["msgs"], "tokens": v["tokens"]}
+                    for k, v in st.get("projects", {}).items() if v.get("cost", 0) > 0}
+        # Today snapshot
+        td = st.get("today", {})
+        today = {"cost": round(td.get("cost", 0), 2), "msgs": td.get("msgs", 0),
+                 "tokens": td.get("tokens", 0)}
         with open(os.path.join(d, "token-stats.json"), "w") as f:
             json.dump({"machine": MACHINE, "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "session_count": st["sessions"], "input_tokens": st["inp"], "output_tokens": st["out"],
                 "cache_write_tokens": st["cw"], "cache_read_tokens": st["cr"],
                 "total_cost": round(st["cost"], 2), "date_range": {"min": st["d_min"], "max": st["d_max"]},
-                "model_breakdown": mb}, f, indent=2)
+                "model_breakdown": mb, "daily": daily, "hourly": hourly,
+                "projects": projects, "today": today}, f, indent=2)
     except Exception: pass
 
 def recalc_remote_cost(data):
@@ -858,7 +871,19 @@ def load_remotes():
         sf = os.path.join(md, m, "token-stats.json")
         if os.path.isfile(sf):
             try:
-                with open(sf) as f: remotes.append(recalc_remote_cost(json.load(f)))
+                with open(sf) as f:
+                    data = recalc_remote_cost(json.load(f))
+                # Normalize field names to match local scan() output
+                data["cost"] = data.get("total_cost", 0)
+                data["sessions"] = data.get("session_count", 0)
+                data["d_min"] = data.get("date_range", {}).get("min")
+                data["d_max"] = data.get("date_range", {}).get("max")
+                data.setdefault("models", data.get("model_breakdown", {}))
+                data.setdefault("daily", {})
+                data.setdefault("hourly", {})
+                data.setdefault("projects", {})
+                data.setdefault("today", {"cost": 0, "msgs": 0, "tokens": 0})
+                remotes.append(data)
             except Exception: pass
     return remotes
 
@@ -874,18 +899,51 @@ def generate_dashboard():
 
     tc = sum(m.get("cost", 0) for m in machines)
     ts = sum(m.get("sessions", 0) for m in machines)
-    today = local.get("today", {})
-    daily = dict(local.get("daily", {}))
-    hourly = dict(local.get("hourly", {}))
+
+    # Merge today across all machines
+    today = dict(local.get("today", {}))
+    for r in remotes:
+        rt = r.get("today", {})
+        today["cost"] = today.get("cost", 0) + rt.get("cost", 0)
+        today["msgs"] = today.get("msgs", 0) + rt.get("msgs", 0)
+
+    # Merge daily across all machines
+    daily = {}
+    for m in machines:
+        for date, v in m.get("daily", {}).items():
+            if date not in daily:
+                daily[date] = {"cost": 0.0, "msgs": 0, "tokens": 0}
+            daily[date]["cost"] += v.get("cost", 0)
+            daily[date]["msgs"] += v.get("msgs", 0)
+            daily[date]["tokens"] += v.get("tokens", 0)
+
+    # Merge hourly across all machines
+    hourly = {}
+    for m in machines:
+        for h, cnt in m.get("hourly", {}).items():
+            h_str = str(h)
+            hourly[h_str] = hourly.get(h_str, 0) + cnt
+
+    # Merge models across all machines
     models = {}
     for m in machines:
         for model, data in m.get("models", {}).items():
             if model not in models:
                 models[model] = {"msgs": 0, "tokens": 0, "cost": 0.0}
-            models[model]["msgs"] += data["msgs"]
-            models[model]["tokens"] += data["tokens"]
-            models[model]["cost"] += data["cost"]
-    projects = dict(local.get("projects", {}))
+            models[model]["msgs"] += data.get("msgs", 0)
+            models[model]["tokens"] += data.get("tokens", 0)
+            models[model]["cost"] += data.get("cost", 0)
+
+    # Merge projects across all machines
+    projects = {}
+    for m in machines:
+        for proj, v in m.get("projects", {}).items():
+            if proj not in projects:
+                projects[proj] = {"cost": 0.0, "msgs": 0, "tokens": 0}
+            projects[proj]["cost"] += v.get("cost", 0)
+            projects[proj]["msgs"] += v.get("msgs", 0)
+            projects[proj]["tokens"] += v.get("tokens", 0)
+
     machine_data = [{"name": m.get("machine", "?"), "cost": round(m.get("cost", 0), 2),
                      "sessions": m.get("sessions", 0)} for m in machines]
     model_display = {}
