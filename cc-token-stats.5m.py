@@ -753,9 +753,12 @@ def _load_scan_cache(base, today_str):
         if current_fps == cached_fps:
             # Restore defaultdicts from cached plain dicts
             s = cache["result"]
-            s["daily"] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}, s.get("daily", {}))
+            s["daily"] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0, "sessions": 0}, s.get("daily", {}))
             s["hourly"] = defaultdict(int, {int(k): v for k, v in s.get("hourly", {}).items()})
             s["projects"] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}, s.get("projects", {}))
+            s.setdefault("daily_models", {})
+            s.setdefault("daily_hourly", {})
+            s.setdefault("sessions_by_day", {})
             return s
     except Exception: pass
     return None
@@ -796,11 +799,17 @@ def scan():
         "window_5h": {"tokens": 0, "cost": 0.0, "msgs": 0, "out": 0},
         "window_7d": {"tokens": 0, "cost": 0.0, "msgs": 0, "out": 0},
         # Daily (ALL dates, collected dynamically)
-        "daily": defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}),
+        "daily": defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0, "sessions": 0}),
         # Hourly (24h)
         "hourly": defaultdict(int),
         # Per-project
         "projects": defaultdict(lambda: {"tokens": 0, "cost": 0.0, "msgs": 0}),
+        # v3: per-day per-model breakdown
+        "daily_models": defaultdict(lambda: defaultdict(lambda: {"cost": 0.0, "msgs": 0})),
+        # v3: per-day per-hour (for heatmap)
+        "daily_hourly": defaultdict(lambda: defaultdict(int)),
+        # v3: session-level detail per day
+        "sessions_by_day": defaultdict(list),
     }
 
     if not os.path.isdir(base):
@@ -815,8 +824,7 @@ def scan():
 
         for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             has = False
-            try: fd = datetime.fromtimestamp(os.path.getmtime(jf)).strftime("%Y-%m-%d")
-            except Exception: fd = None
+            sess_cost = 0.0; sess_msgs = 0; sess_first_date = None; sess_model_counts = {}
             try:
                 with open(jf, "r", encoding="utf-8") as f:
                     for line in f:
@@ -834,6 +842,10 @@ def scan():
                             p = PRICING.get(tier(m), PRICING["sonnet"])
                             mc = (i * p["input"] + o * p["output"] + w * p["cache_write"] + r * p["cache_read"]) / 1e6
                             s["cost"] += mc
+                            # v3: session-level tracking
+                            sess_cost += mc; sess_msgs += 1
+                            if m and m != "<synthetic>":
+                                sess_model_counts[m] = sess_model_counts.get(m, 0) + 1
 
                             # Model breakdown
                             if m and m != "<synthetic>":
@@ -853,18 +865,32 @@ def scan():
                                     if m not in td["models"]: td["models"][m] = {"msgs": 0, "cost": 0.0}
                                     td["models"][m]["msgs"] += 1; td["models"][m]["cost"] += mc
 
+                            # v3: track first message date for session
+                            if msg_date and not sess_first_date:
+                                sess_first_date = msg_date
+
                             # Daily (all dates) + date range from message timestamps
                             if msg_date:
                                 dd = s["daily"][msg_date]
                                 dd["tokens"] += total_t; dd["cost"] += mc; dd["msgs"] += 1
                                 if not s["d_min"] or msg_date < s["d_min"]: s["d_min"] = msg_date
                                 if not s["d_max"] or msg_date > s["d_max"]: s["d_max"] = msg_date
+                                # v3: per-day per-model
+                                if m and m != "<synthetic>":
+                                    short_m = MODEL_SHORT.get(m, m.split("-")[-1] if "-" in m else m[:15])
+                                    dm = s["daily_models"][msg_date][short_m]
+                                    dm["cost"] += mc; dm["msgs"] += 1
 
                             # Hourly (convert to local timezone)
                             if ts_str:
                                 try:
-                                    local_h = datetime.fromisoformat(ts_str.replace("Z","+00:00")).astimezone().hour
+                                    local_dt = datetime.fromisoformat(ts_str.replace("Z","+00:00")).astimezone()
+                                    local_h = local_dt.hour
                                     s["hourly"][local_h] += 1
+                                    # v3: per-day per-hour for heatmap
+                                    if msg_date:
+                                        local_weekday = local_dt.weekday()  # 0=Mon, 6=Sun
+                                        s["daily_hourly"][local_weekday][local_h] += 1
                                 except Exception: pass
 
                             # Rolling windows (5h / 7d)
@@ -887,6 +913,15 @@ def scan():
                         except Exception: pass
                 if has:
                     s["sessions"] += 1
+                    # v3: record session detail + count sessions per day
+                    if sess_first_date:
+                        s["daily"][sess_first_date]["sessions"] = s["daily"][sess_first_date].get("sessions", 0) + 1
+                        sess_list = s["sessions_by_day"][sess_first_date]
+                        if len(sess_list) < 30:  # cap per day
+                            dom_model = max(sess_model_counts, key=sess_model_counts.get) if sess_model_counts else ""
+                            short_dm = MODEL_SHORT.get(dom_model, dom_model.split("-")[-1] if "-" in dom_model else dom_model[:15])
+                            sess_list.append({"project": proj_name, "cost": round(sess_cost, 2),
+                                              "msgs": sess_msgs, "model": short_dm})
             except Exception: pass
 
     _save_scan_cache(base, today_str, s)
@@ -971,6 +1006,9 @@ def load_remotes():
                 data.setdefault("hourly", {})
                 data.setdefault("projects", {})
                 data.setdefault("today", {"cost": 0, "msgs": 0, "tokens": 0})
+                data.setdefault("daily_models", {})
+                data.setdefault("daily_hourly", {})
+                data.setdefault("sessions_by_day", {})
                 remotes.append(data)
             except Exception: pass
     return remotes
@@ -1075,8 +1113,76 @@ def generate_dashboard():
         roi = {"sub": sub, "months": round(months, 1), "paid": round(paid, 0),
                "cost": round(tc, 2), "multiplier": round(tc / paid, 1)}
 
+    # v3: Merge daily_models across machines
+    daily_models = {}
+    for m in machines:
+        for date, models_d in m.get("daily_models", {}).items():
+            if date not in daily_models:
+                daily_models[date] = {}
+            for model, v in models_d.items():
+                if model not in daily_models[date]:
+                    daily_models[date][model] = {"cost": 0.0, "msgs": 0}
+                daily_models[date][model]["cost"] += v.get("cost", 0)
+                daily_models[date][model]["msgs"] += v.get("msgs", 0)
+
+    # v3: Merge daily_hourly (weekday × hour heatmap)
+    heatmap = {}  # {weekday: {hour: count}}
+    for m in machines:
+        for wd, hours_d in m.get("daily_hourly", {}).items():
+            wd_s = str(wd)
+            if wd_s not in heatmap:
+                heatmap[wd_s] = {}
+            for h, cnt in hours_d.items():
+                h_s = str(h)
+                heatmap[wd_s][h_s] = heatmap[wd_s].get(h_s, 0) + cnt
+
+    # v3: Merge sessions_by_day
+    sessions_by_day = {}
+    for m in machines:
+        for date, sess_list in m.get("sessions_by_day", {}).items():
+            if date not in sessions_by_day:
+                sessions_by_day[date] = []
+            sessions_by_day[date].extend(sess_list)
+    # Cap and sort by cost desc
+    for date in sessions_by_day:
+        sessions_by_day[date] = sorted(sessions_by_day[date], key=lambda x: -x.get("cost", 0))[:30]
+
+    # v3: Forecast — project current month total based on 7-day average
+    forecast = {}
+    sorted_dates = sorted(daily.keys())
+    if len(sorted_dates) >= 3:
+        recent_7 = [daily[d]["cost"] for d in sorted_dates[-7:]]
+        avg_7d = sum(recent_7) / len(recent_7)
+        today_dt = datetime.now()
+        days_in_month = 30  # simplified
+        try:
+            import calendar
+            days_in_month = calendar.monthrange(today_dt.year, today_dt.month)[1]
+        except Exception: pass
+        month_prefix = today_dt.strftime("%Y-%m")
+        month_actual = sum(daily[d]["cost"] for d in daily if d[:7] == month_prefix)
+        days_left = days_in_month - today_dt.day
+        projected = month_actual + (avg_7d * max(days_left, 0))
+        forecast = {"projected": round(projected, 0), "avg_7d": round(avg_7d, 2),
+                    "days_left": days_left, "month_actual": round(month_actual, 2)}
+
+    # v3: Anomaly detection — days where cost > 2x trailing 30-day average
+    anomaly_dates = []
+    for idx, date in enumerate(sorted_dates):
+        window = [daily[d]["cost"] for d in sorted_dates[max(0, idx-30):idx]]
+        if len(window) >= 3:
+            avg = sum(window) / len(window)
+            if avg > 0 and daily[date]["cost"] > avg * 2:
+                anomaly_dates.append(date)
+
+    # v3: daily_models for payload (round costs)
+    dm_payload = {}
+    for date, models_d in sorted(daily_models.items()):
+        dm_payload[date] = {m: round(v["cost"], 2) for m, v in models_d.items()}
+
     payload = json.dumps({
-        "daily": {k: {"cost": round(v["cost"], 2), "msgs": v["msgs"], "tokens": v["tokens"]}
+        "daily": {k: {"cost": round(v["cost"], 2), "msgs": v["msgs"], "tokens": v["tokens"],
+                       "sessions": v.get("sessions", 0)}
                   for k, v in sorted(daily.items()) if v.get("cost", 0) > 0 or v.get("msgs", 0) > 0},
         "hourly": {str(k): v for k, v in sorted(hourly.items())},
         "models": model_display, "model_msgs": model_msgs,
@@ -1087,239 +1193,558 @@ def generate_dashboard():
         "total": {"cost": round(tc, 2), "sessions": ts, "tokens": total_tokens,
                   "inp": total_inp, "out": total_out, "cw": total_cw, "cr": total_cr},
         "daily_avg": daily_avg, "active_days": active_days, "span_days": span_days,
+        "daily_models": dm_payload,
+        "heatmap": heatmap,
+        "sessions_by_day": sessions_by_day,
+        "forecast": forecast,
+        "anomaly_dates": anomaly_dates,
         "lang": LANG, "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }, ensure_ascii=False)
 
-    # HTML template is entirely generated from trusted local data (scan cache + API cache)
-    # No user-supplied HTML content is injected — all values are JSON-serialized numbers/strings
     html = _build_dashboard_html(payload)
+    # Atomic file write: tmp + rename to avoid race condition
     DASHBOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DASHBOARD_FILE.write_text(html)
+    tmp_path = DASHBOARD_FILE.with_suffix(".tmp")
+    tmp_path.write_text(html)
+    os.rename(str(tmp_path), str(DASHBOARD_FILE))
     return str(DASHBOARD_FILE)
 
 def _build_dashboard_html(payload):
-    """Build self-contained HTML string for dashboard. All data comes from trusted local caches.
-    Uses string.replace() instead of f-string to avoid brace escaping nightmares with JS."""
+    """Build self-contained HTML string for dashboard v3. All data from trusted local caches."""
     template = r"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Claude Code Dashboard</title>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Code Token Stats</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif}
-.header{padding:24px 32px 8px;display:flex;justify-content:space-between;align-items:baseline}
-.header h1{font-size:22px;color:#e6edf3;font-weight:600}.header .meta{color:#8b949e;font-size:12px}
-.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 32px 32px;max-width:1440px;margin:0 auto}
-.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px}
-.s2{grid-column:span 2}.s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}.s8{grid-column:span 8}.s12{grid-column:span 12}
-.kpi{text-align:center;padding:12px 8px}.kpi .v{font-size:24px;font-weight:700;color:#e6edf3;margin:6px 0 3px}
-.kpi .l{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
-.kpi .u{font-size:11px;color:#8b949e;margin-top:2px}
-.kpi.c1 .v{color:#58d4ab}.kpi.c2 .v{color:#58a6ff}.kpi.c3 .v{color:#d4a04a}
-.kpi.c4 .v{color:#3fb950}.kpi.c5 .v{color:#a371f7}.kpi.c6 .v{color:#d2a8ff}
-.ch{width:100%;height:270px}.cht{width:100%;height:300px}
-h3{font-size:12px;color:#8b949e;font-weight:500;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
-.empty{color:#484f58;text-align:center;padding-top:80px;font-size:13px}
-@media(max-width:900px){.grid{grid-template-columns:repeat(6,1fr)}.s2{grid-column:span 3}.s8,.s6,.s4{grid-column:span 6}}
-@media(max-width:600px){.grid{grid-template-columns:1fr;padding:12px}[class*="s"]{grid-column:span 1}}
-</style></head><body>
-<div class="header"><h1 id="T"></h1><span class="meta" id="G"></span></div>
-<div class="grid">
-<!-- 6 KPI cards -->
-<div class="card s2 kpi c1"><div class="l" id="k1l"></div><div class="v" id="k1v"></div><div class="u" id="k1u"></div></div>
-<div class="card s2 kpi c2"><div class="l" id="k2l"></div><div class="v" id="k2v"></div><div class="u" id="k2u"></div></div>
-<div class="card s2 kpi c3"><div class="l" id="k3l"></div><div class="v" id="k3v"></div><div class="u" id="k3u"></div></div>
-<div class="card s2 kpi c4"><div class="l" id="k4l"></div><div class="v" id="k4v"></div><div class="u" id="k4u"></div></div>
-<div class="card s2 kpi c5"><div class="l" id="k5l"></div><div class="v" id="k5v"></div><div class="u" id="k5u"></div></div>
-<div class="card s2 kpi c6"><div class="l" id="k6l"></div><div class="v" id="k6v"></div><div class="u" id="k6u"></div></div>
-<!-- Row 2: Daily trend (dual axis) full width -->
-<div class="card s12"><h3 id="h1"></h3><div id="c1" class="ch"></div></div>
-<!-- Row 3: Model + Token composition + Rate limits -->
-<div class="card s4"><h3 id="h2"></h3><div id="c2" class="ch"></div></div>
-<div class="card s4"><h3 id="h7"></h3><div id="c7" class="ch"></div></div>
-<div class="card s4"><h3 id="h5"></h3><div id="c5" class="ch"></div></div>
-<!-- Row 4: Hourly + Projects -->
-<div class="card s6"><h3 id="h3"></h3><div id="c3" class="ch"></div></div>
-<div class="card s6"><h3 id="h4"></h3><div id="c4" class="ch"></div></div>
-<!-- Row 5: Machines + Daily detail table -->
-<div class="card s4"><h3 id="h6"></h3><div id="c6" class="ch"></div></div>
-<div class="card s8"><h3 id="h8"></h3><div id="c8" style="max-height:270px;overflow-y:auto"></div></div>
+:root{
+  --bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;
+  --teal:#58d4ab;--blue:#58a6ff;--gold:#d4a04a;--red:#f85149;--amber:#d29922;
+  --purple:#a371f7;--muted:#484f58;
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",system-ui,sans-serif;padding:16px;line-height:1.5}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(12,1fr)}
+.s2{grid-column:span 2}.s4{grid-column:span 4}.s6{grid-column:span 6}.s12{grid-column:span 12}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;position:relative;overflow:hidden}
+.kpi{text-align:center}
+.kpi .label{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.kpi .value{font-size:28px;font-weight:700;font-family:"SF Mono",SFMono-Regular,Consolas,monospace}
+.kpi .sub{font-size:12px;color:var(--dim);margin-top:4px}
+.kpi .stripe{position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}
+.chart-box{min-height:320px}
+.section-title{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text)}
+/* Progress bars */
+.pbar-wrap{margin-bottom:10px}
+.pbar-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px}
+.pbar-label span:first-child{color:var(--text)}.pbar-label span:last-child{color:var(--dim);font-family:"SF Mono",monospace}
+.pbar{height:8px;background:var(--muted);border-radius:4px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:4px;transition:width .3s}
+/* Limit battery */
+.limit-item{margin-bottom:14px}
+.limit-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.limit-name{font-size:13px;color:var(--text)}.limit-pct{font-size:13px;font-family:"SF Mono",monospace;font-weight:600}
+.limit-bar{height:20px;background:#21262d;border-radius:4px;position:relative;overflow:hidden;border:1px solid var(--border)}
+.limit-fill{height:100%;border-radius:3px;transition:width .4s}
+.limit-mark{position:absolute;top:0;bottom:0;width:1px;border-left:2px dashed rgba(255,255,255,.3)}
+.limit-reset{font-size:11px;color:var(--dim);margin-top:2px}
+/* Machine cards */
+.machine-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px}
+.machine-name{font-size:14px;font-weight:600;margin-bottom:8px}
+.machine-stat{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px}
+.machine-stat span:last-child{color:var(--text);font-family:"SF Mono",monospace}
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table th{text-align:left;padding:10px 12px;border-bottom:2px solid var(--border);color:var(--dim);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.data-table td{padding:8px 12px;border-bottom:1px solid var(--border);font-family:"SF Mono",monospace}
+.data-table tr.clickable{cursor:pointer}.data-table tr.clickable:hover{background:rgba(88,166,255,.06)}
+.data-table tr.sub-row{background:rgba(22,27,34,.8)}
+.data-table tr.sub-row td{padding:6px 12px 6px 32px;font-size:12px;color:var(--dim);border-bottom:1px solid rgba(48,54,61,.5)}
+.data-table tr.sub-row td:first-child{color:var(--blue)}
+.hidden{display:none}
+/* Scrollable table wrapper */
+.table-wrap{max-height:500px;overflow-y:auto}
+.table-wrap::-webkit-scrollbar{width:6px}.table-wrap::-webkit-scrollbar-track{background:var(--bg)}.table-wrap::-webkit-scrollbar-thumb{background:var(--muted);border-radius:3px}
+/* Footer */
+.footer{text-align:center;padding:20px 0 8px;font-size:11px;color:var(--muted)}
+/* Responsive */
+@media(max-width:900px){
+  .s2{grid-column:span 4}.s4{grid-column:span 6}.s6{grid-column:span 12}
+}
+@media(max-width:600px){
+  .s2{grid-column:span 6}.s4{grid-column:span 12}.s6{grid-column:span 12}
+  .kpi .value{font-size:22px}body{padding:8px}.grid{gap:10px}
+}
+</style>
+</head>
+<body>
+<!-- Row 1: KPI Cards -->
+<div class="grid" id="kpi-row">
+  <div class="card kpi s2" id="kpi-today"><div class="stripe" style="background:var(--teal)"></div><div class="label" id="kl-today"></div><div class="value" id="kv-today" style="color:var(--teal)"></div><div class="sub" id="ks-today"></div></div>
+  <div class="card kpi s2" id="kpi-total"><div class="stripe" style="background:var(--blue)"></div><div class="label" id="kl-total"></div><div class="value" id="kv-total" style="color:var(--blue)"></div><div class="sub" id="ks-total"></div></div>
+  <div class="card kpi s2" id="kpi-forecast"><div class="stripe" style="background:var(--gold)"></div><div class="label" id="kl-forecast"></div><div class="value" id="kv-forecast" style="color:var(--gold)"></div><div class="sub" id="ks-forecast"></div></div>
+  <div class="card kpi s2" id="kpi-roi"><div class="stripe" style="background:var(--amber)"></div><div class="label" id="kl-roi"></div><div class="value" id="kv-roi" style="color:var(--amber)"></div><div class="sub" id="ks-roi"></div></div>
+  <div class="card kpi s2" id="kpi-sessions"><div class="stripe" style="background:var(--teal)"></div><div class="label" id="kl-sessions"></div><div class="value" id="kv-sessions" style="color:var(--teal)"></div><div class="sub" id="ks-sessions"></div></div>
+  <div class="card kpi s2" id="kpi-avg"><div class="stripe" style="background:var(--purple)"></div><div class="label" id="kl-avg"></div><div class="value" id="kv-avg" style="color:var(--purple)"></div><div class="sub" id="ks-avg"></div></div>
 </div>
+<!-- Row 2: Daily Chart -->
+<div class="grid" style="margin-top:16px">
+  <div class="card s12 chart-box" style="min-height:400px"><div id="chart-daily" style="width:100%;height:380px"></div></div>
+</div>
+<!-- Row 3: Model + Token + Limits -->
+<div class="grid" style="margin-top:16px">
+  <div class="card s4"><div class="section-title" id="title-model"></div><div id="model-area" style="min-height:260px"></div></div>
+  <div class="card s4"><div class="section-title" id="title-token"></div><div id="token-area"></div></div>
+  <div class="card s4"><div class="section-title" id="title-limits"></div><div id="limits-area"></div></div>
+</div>
+<!-- Row 4: Model Trend + Heatmap -->
+<div class="grid" style="margin-top:16px">
+  <div class="card s6 chart-box"><div id="chart-model-trend" style="width:100%;height:300px"></div></div>
+  <div class="card s6 chart-box"><div id="chart-heatmap" style="width:100%;height:300px"></div></div>
+</div>
+<!-- Row 5: Projects + Machines -->
+<div class="grid" style="margin-top:16px">
+  <div class="card s6 chart-box"><div id="chart-projects" style="width:100%;height:320px"></div></div>
+  <div class="card s6"><div class="section-title" id="title-machines"></div><div id="machines-area"></div></div>
+</div>
+<!-- Row 6: Daily Detail Table -->
+<div class="grid" style="margin-top:16px">
+  <div class="card s12">
+    <div class="section-title" id="title-table"></div>
+    <div class="table-wrap"><table class="data-table" id="detail-table"><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
+  </div>
+</div>
+<div class="footer" id="footer-text"></div>
+
 <script>
-const D=__DATA__;
-const zh=D.lang==='zh';
-const t=k=>({title:zh?'Claude Code 用量看板详情':'Claude Code Usage Dashboard',
-today:zh?'今日':'Today',total:zh?'累计费用':'Total Cost',sessions:zh?'会话':'Sessions',
-roi:'ROI',tokens:zh?'总 Tokens':'Total Tokens',avg:zh?'日均费用':'Daily Avg',
-daily:zh?'每日费用 & 消息趋势':'Daily Cost & Message Trend',
-model:zh?'模型费用分布':'Model Cost Distribution',
-token_comp:zh?'Token 构成':'Token Composition',
-hourly:zh?'24 小时活跃分布':'24-Hour Activity',project:zh?'项目费用排行':'Project Cost Ranking',
-limits:zh?'用量限额':'Rate Limits',machines:zh?'设备费用对比':'Machine Cost Comparison',
-detail:zh?'每日明细':'Daily Breakdown',
-cost:zh?'费用':'Cost',msgs:zh?'消息':'Msgs',days:zh?'天':'days',
-input:zh?'输入':'Input',output:zh?'输出':'Output',cache_w:zh?'缓存写':'Cache W',cache_r:zh?'缓存读':'Cache R'
-})[k]||k;
-const fc=n=>n>=1e4?'$'+n.toLocaleString('en',{maximumFractionDigits:0}):'$'+n.toFixed(2);
-const fk=n=>{if(zh){if(n>=1e8)return(n/1e8).toFixed(1)+' \u4ebf';if(n>=1e4)return(n/1e4).toFixed(0)+' \u4e07';return n.toLocaleString();}return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'K':n;};
-const C={p:'#58a6ff',t:'#58d4ab',g:'#d4a04a',d:'#f85149',w:'#d29922',op:'#a371f7',sn:'#58a6ff',hk:'#3fb950',m:'#484f58'};
-const tt={backgroundColor:'#1c2128',borderColor:'#30363d',textStyle:{color:'#c9d1d9'}};
-const ax={axisLine:{lineStyle:{color:'#30363d'}},splitLine:{lineStyle:{color:'#21262d'}},axisLabel:{color:'#8b949e',fontSize:10}};
-const $=id=>document.getElementById(id);
+const D = __DATA__;
+const zh = D.lang === 'zh';
+const $ = id => document.getElementById(id);
 
-// Header
-$('T').textContent=t('title');$('G').textContent=D.generated;
+// ── Helpers ──
+function fc(n) {
+  if (n == null) return '—';
+  return '$' + n.toFixed(2);
+}
+function fk(n) {
+  if (n == null) return '—';
+  if (zh) {
+    if (n >= 1e8) return (n / 1e8).toFixed(2) + ' \u4ebf';
+    if (n >= 1e4) return (n / 1e4).toFixed(1) + ' \u4e07';
+    return n.toLocaleString();
+  }
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+function pct(a, b) { return b ? (a / b * 100).toFixed(1) : '0.0'; }
+function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-// 6 KPI Cards
-$('k1l').textContent=t('today');$('k1v').textContent=fc(D.today.cost);$('k1u').textContent=D.today.msgs+' '+t('msgs');
-$('k2l').textContent=t('total');$('k2v').textContent=fc(D.total.cost);$('k2u').textContent=D.span_days+' '+t('days');
-$('k3l').textContent=t('roi');
-if(D.roi.multiplier){$('k3v').textContent=D.roi.multiplier+'x';$('k3u').textContent=fc(D.roi.cost)+' / $'+D.roi.paid;}
-else{$('k3v').textContent='\u2014';$('k3u').textContent='';}
-$('k4l').textContent=t('sessions');$('k4v').textContent=D.total.sessions.toLocaleString();$('k4u').textContent=D.machines.length+' machines';
-$('k5l').textContent=t('tokens');$('k5v').textContent=fk(D.total.tokens);$('k5u').textContent='in+out+cache';
-$('k6l').textContent=t('avg');$('k6v').textContent=fc(D.daily_avg);$('k6u').textContent='/day';
+// ── Row 1: KPI Cards ──
+$('kl-today').textContent = zh ? '\u4eca\u65e5\u82b1\u8d39' : 'Today Cost';
+$('kv-today').textContent = fc(D.today.cost);
+$('ks-today').textContent = D.today.msgs + (zh ? ' \u6761\u6d88\u606f' : ' messages');
 
-// 1. Daily Cost + Messages (dual Y axis, full width)
-$('h1').textContent=t('daily');
-const dd=Object.keys(D.daily),dCost=dd.map(d=>D.daily[d].cost),dMsgs=dd.map(d=>D.daily[d].msgs);
-echarts.init($('c1')).setOption({
-tooltip:{...tt,trigger:'axis',formatter:p=>{let s=p[0].name;p.forEach(x=>{s+='<br/>'+x.marker+x.seriesName+': '+(x.seriesIndex===0?fc(x.value):x.value);});return s;}},
-legend:{data:[t('cost'),t('msgs')],textStyle:{color:'#8b949e'},top:0,right:60},
-xAxis:{type:'category',data:dd,...ax,axisLabel:{...ax.axisLabel,formatter:v=>v.slice(5)}},
-yAxis:[{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
-{type:'value',...ax,axisLabel:{...ax.axisLabel},splitLine:{show:false}}],
-series:[
-{name:t('cost'),type:'bar',data:dCost,barWidth:'60%',itemStyle:{color:C.t,borderRadius:[3,3,0,0]},yAxisIndex:0},
-{name:t('msgs'),type:'line',data:dMsgs,smooth:true,symbol:'none',lineStyle:{color:C.p,width:2},yAxisIndex:1}],
-dataZoom:[{type:'inside'},{type:'slider',height:18,bottom:0,borderColor:'#30363d',backgroundColor:'#161b22',
-fillerColor:'rgba(88,212,171,0.1)',handleStyle:{color:'#58d4ab'},textStyle:{color:'#8b949e'}}],
-grid:{left:55,right:55,top:30,bottom:38}});
+$('kl-total').textContent = zh ? '\u603b\u82b1\u8d39' : 'Total Cost';
+$('kv-total').textContent = fc(D.total.cost);
+$('ks-total').textContent = D.span_days + (zh ? ' \u5929' : ' days');
 
-// 2. Model Distribution (auto: donut if balanced, bars if one dominates)
-$('h2').textContent=t('model');
-const mClr={};Object.keys(D.models).forEach(k=>{const l=k.toLowerCase();mClr[k]=l.includes('opus')?C.op:l.includes('haiku')?C.hk:C.sn;});
-const mTotal=Object.values(D.models).reduce((a,b)=>a+b,0)||1;
-const mMax=Math.max(...Object.values(D.models));
-if(mMax/mTotal>0.9){
-// One model dominates >90% — use horizontal bars with labels for readability
-const mEntries=Object.entries(D.models).sort((a,b)=>b[1]-a[1]);
-const mMsgs=D.model_msgs||{};
-let mHtml='';
-mEntries.forEach(([k,v])=>{const pct=v/mTotal*100;const msgs=mMsgs[k]||0;
-mHtml+='<div style="margin:12px 0"><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">'
-+'<span style="color:'+(mClr[k]||C.m)+';font-weight:600">'+k+'</span>'
-+'<span style="color:#8b949e">'+fc(v)+' \u00b7 '+msgs.toLocaleString()+' msgs \u00b7 '+pct.toFixed(1)+'%</span></div>'
-+'<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden">'
-+'<div style="background:'+(mClr[k]||C.m)+';height:100%;border-radius:4px;width:'+Math.max(pct,0.8)+'%"></div>'
-+'</div></div>';});
-$('c2').style.cssText='padding:5px 0';$('c2').className='';
-$('c2').insertAdjacentHTML('beforeend',mHtml);
-}else{
-echarts.init($('c2')).setOption({
-tooltip:{...tt,formatter:p=>p.name+': '+fc(p.value)+' ('+p.percent+'%)'},
-series:[{type:'pie',radius:['40%','68%'],center:['50%','55%'],
-label:{color:'#c9d1d9',fontSize:10,formatter:'{b}\n{d}%'},
-data:Object.entries(D.models).map(([k,v])=>({name:k,value:v,itemStyle:{color:mClr[k]||C.m}}))}]});
+$('kl-forecast').textContent = zh ? '\u672c\u6708\u9884\u6d4b' : 'Month Forecast';
+if (D.forecast && D.forecast.projected) {
+  $('kv-forecast').textContent = fc(D.forecast.projected);
+  $('ks-forecast').textContent = zh ? '\u57fa\u4e8e 7 \u5929\u5747\u503c' : 'based on 7d avg';
+} else {
+  $('kv-forecast').textContent = '\u2014';
+  $('ks-forecast').textContent = '';
 }
 
-// 7. Token Composition (progress bars via DOM)
-$('h7').textContent=t('token_comp');
-const tk=D.total,tkAll=tk.inp+tk.out+tk.cw+tk.cr||1;
-const tkItems=[{l:t('cache_r'),v:tk.cr,c:'#a371f7'},{l:t('cache_w'),v:tk.cw,c:'#d4a04a'},
-{l:t('output'),v:tk.out,c:'#58d4ab'},{l:t('input'),v:tk.inp,c:'#58a6ff'}];
-let tkHtml='';
-tkItems.forEach(x=>{const pct=(x.v/tkAll*100);
-tkHtml+='<div style="margin:10px 0"><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px">'
-+'<span style="color:#c9d1d9">'+x.l+'</span><span style="color:#8b949e">'+fk(x.v)+' ('+pct.toFixed(1)+'%)</span></div>'
-+'<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden">'
-+'<div style="background:'+x.c+';height:100%;border-radius:4px;width:'+Math.max(pct,0.5)+'%"></div>'
-+'</div></div>';});
-$('c7').style.cssText='padding:5px 0';$('c7').className='';
-$('c7').insertAdjacentHTML('beforeend',tkHtml);
+$('kl-roi').textContent = 'ROI';
+if (D.roi && D.roi.multiplier) {
+  $('kv-roi').textContent = D.roi.multiplier.toFixed(1) + 'x';
+  $('ks-roi').textContent = fc(D.roi.paid) + (zh ? ' \u5df2\u4ed8' : ' paid');
+} else {
+  $('kv-roi').textContent = '\u2014';
+  $('ks-roi').textContent = '';
+}
 
-// 5. Rate Limits (battery-style progress bars)
-$('h5').textContent=t('limits');
-const ln={five_hour:'Session (5h)',seven_day:'Weekly (7d)',seven_day_sonnet:'Sonnet',seven_day_opus:'Opus'};
-const le=Object.entries(D.limits);
-if(le.length>0){
-let limHtml='';
-le.forEach(([k,v])=>{
-const name=ln[k]||k;const pct=Math.round(v.util);
-const barColor=pct>=80?C.d:pct>=60?C.w:C.t;
-const rst=v.resets_at;let rstLabel='';
-if(rst){try{const rt=new Date(rst);const now=new Date();const diff=Math.max(0,rt-now);
-const h=Math.floor(diff/3600000);const m=Math.floor((diff%3600000)/60000);
-rstLabel=h>0?(h+'h'+m+'m'):(m+'m');}catch(e){}}
-limHtml+='<div style="margin:14px 0">'
-+'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
-+'<span style="color:#e6edf3;font-size:13px;font-weight:600">'+name+'</span>'
-+'<span style="font-size:11px;color:#8b949e">'
-+'<span style="color:'+barColor+';font-weight:700;font-size:16px">'+pct+'%</span>'
-+(rstLabel?(' \u00b7 \u21bb '+rstLabel):'')+'</span></div>'
-+'<div style="background:#21262d;border-radius:5px;height:14px;overflow:hidden;position:relative">'
-+'<div style="background:linear-gradient(90deg,'+barColor+','+barColor+'cc);height:100%;border-radius:5px;width:'+Math.max(pct,1)+'%;'
-+'box-shadow:0 0 8px '+barColor+'30"></div>'
-+(pct<80?'<div style="position:absolute;left:80%;top:0;bottom:0;width:1px;background:#484f58" title="80%"></div>':'')
-+'</div></div>';});
-$('c5').style.cssText='padding:8px 0';$('c5').className='';
-$('c5').insertAdjacentHTML('beforeend',limHtml);
-}else{$('c5').textContent='No data';$('c5').className='empty';}
+$('kl-sessions').textContent = zh ? '\u4f1a\u8bdd' : 'Sessions';
+$('kv-sessions').textContent = D.total.sessions.toLocaleString();
+$('ks-sessions').textContent = (D.machines ? D.machines.length : 0) + (zh ? ' \u53f0\u673a\u5668' : ' machines');
 
-// 3. Hourly Activity (gradient bars)
-$('h3').textContent=t('hourly');
-const hrs=Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
-const hv=hrs.map(h=>D.hourly[String(parseInt(h))]||0);
-const hMax=Math.max(...hv,1);
-echarts.init($('c3')).setOption({
-tooltip:{...tt,formatter:p=>p.name+':00 \u2014 '+p.value+' '+t('msgs')},
-xAxis:{type:'category',data:hrs.map(h=>h+':00'),...ax,axisLabel:{...ax.axisLabel,interval:2}},
-yAxis:{type:'value',...ax},
-series:[{type:'bar',data:hv.map(v=>{const r=v/hMax;return{value:v,itemStyle:{color:r>0.8?C.t:r>0.5?C.p:r>0?'#3a6ea5':C.m,borderRadius:[3,3,0,0]}};}),barWidth:'55%'}],
-grid:{left:45,right:12,top:10,bottom:28}});
+$('kl-avg').textContent = zh ? '\u65e5\u5747\u82b1\u8d39' : 'Daily Avg';
+$('kv-avg').textContent = fc(D.daily_avg);
+$('ks-avg').textContent = '/' + (zh ? '\u5929' : 'day');
 
-// 4. Project Ranking (horizontal bar)
-$('h4').textContent=t('project');
-const pe=Object.entries(D.projects).slice(0,10).map(([k,v])=>[k,v.cost]);
-const pn=pe.map(e=>e[0]).reverse(),pc=pe.map(e=>e[1]).reverse();
-echarts.init($('c4')).setOption({
-tooltip:{...tt,formatter:p=>p.name+': '+fc(p.value)},
-xAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
-yAxis:{type:'category',data:pn,...ax,axisLabel:{...ax.axisLabel,width:75,overflow:'truncate'}},
-series:[{type:'bar',data:pc,barWidth:'55%',itemStyle:{color:C.g,borderRadius:[0,4,4,0]},
-label:{show:true,position:'right',color:'#8b949e',fontSize:9,formatter:p=>fc(p.value)}}],
-grid:{left:85,right:55,top:8,bottom:28}});
+// ── Row 2: Daily Cost+Messages Chart ──
+(function() {
+  var dates = Object.keys(D.daily).sort();
+  var costs = dates.map(function(d) { return D.daily[d].cost || 0; });
+  var msgs = dates.map(function(d) { return D.daily[d].msgs || 0; });
+  var anomalySet = {};
+  (D.anomaly_dates || []).forEach(function(d) { anomalySet[d] = true; });
+  var anomalyPoints = [];
+  dates.forEach(function(d, i) {
+    if (anomalySet[d]) anomalyPoints.push({coord: [i, costs[i]], value: costs[i]});
+  });
 
-// 6. Machines (bar)
-$('h6').textContent=t('machines');
-if(D.machines.length>1){echarts.init($('c6')).setOption({
-tooltip:{...tt},
-xAxis:{type:'category',data:D.machines.map(m=>m.name),...ax,axisLabel:{...ax.axisLabel,fontSize:9}},
-yAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
-series:[{type:'bar',data:D.machines.map(m=>({value:m.cost,itemStyle:{color:C.t,borderRadius:[4,4,0,0]}})),
-barWidth:'45%',label:{show:true,position:'top',color:'#8b949e',fontSize:10,formatter:p=>fc(p.value)}}],
-grid:{left:50,right:12,top:25,bottom:28}});}
-else{$('c6').textContent='Single machine';$('c6').className='empty';}
+  // Forecast line data
+  var forecastData = [];
+  if (D.forecast && D.forecast.avg_7d && dates.length > 0) {
+    var lastDate = new Date(dates[dates.length - 1]);
+    var lastMonth = lastDate.getMonth();
+    var lastYear = lastDate.getFullYear();
+    var daysInMonth = new Date(lastYear, lastMonth + 1, 0).getDate();
+    // Add from last real date to end of month
+    for (var fd = lastDate.getDate(); fd <= daysInMonth; fd++) {
+      var ds = lastYear + '-' + String(lastMonth + 1).padStart(2, '0') + '-' + String(fd).padStart(2, '0');
+      forecastData.push([ds, D.forecast.avg_7d]);
+    }
+  }
 
-// 8. Daily Detail Table
-$('h8').textContent=t('detail');
-const tbl=document.createElement('table');
-tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px;font-family:Menlo,monospace';
-const hdr=tbl.insertRow();
-[zh?'日期':'Date',zh?'费用':'Cost',zh?'消息':'Msgs',zh?'Tokens':'Tokens'].forEach(h=>{
-const th=document.createElement('th');th.textContent=h;
-th.style.cssText='text-align:right;padding:5px 8px;color:#8b949e;border-bottom:1px solid #30363d;font-weight:500';
-if(h===(zh?'日期':'Date'))th.style.textAlign='left';hdr.appendChild(th);});
-Object.entries(D.daily).reverse().forEach(([d,v])=>{
-const row=tbl.insertRow();
-[d.slice(5),fc(v.cost),v.msgs.toLocaleString(),fk(v.tokens)].forEach((val,i)=>{
-const td=row.insertCell();td.textContent=val;
-td.style.cssText='padding:4px 8px;border-bottom:1px solid #21262d;color:#c9d1d9;text-align:right';
-if(i===0)td.style.textAlign='left';});});
-$('c8').appendChild(tbl);
+  // Enhanced tooltip with model breakdown
+  var dailyModels = D.daily_models || {};
 
-window.addEventListener('resize',()=>{document.querySelectorAll('.ch,.cht').forEach(el=>{const c=echarts.getInstanceByDom(el);if(c)c.resize();});});
-</script></body></html>"""
+  var chart = echarts.init($('chart-daily'), null, {renderer: 'canvas'});
+  var allDates = dates.slice();
+  forecastData.forEach(function(f) { if (allDates.indexOf(f[0]) === -1) allDates.push(f[0]); });
+  allDates.sort();
+
+  // Re-map costs/msgs to full date range
+  var fullCosts = allDates.map(function(d) { return D.daily[d] ? D.daily[d].cost || 0 : null; });
+  var fullMsgs = allDates.map(function(d) { return D.daily[d] ? D.daily[d].msgs || 0 : null; });
+
+  chart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#161b22',
+      borderColor: '#30363d',
+      textStyle: {color: '#c9d1d9', fontSize: 12},
+      formatter: function(params) {
+        var date = params[0].axisValue;
+        var lines = ['<b>' + date + '</b>'];
+        params.forEach(function(p) {
+          if (p.seriesName === (zh ? '\u82b1\u8d39' : 'Cost') && p.value != null) {
+            lines.push(p.marker + ' ' + p.seriesName + ': ' + fc(p.value));
+          }
+          if (p.seriesName === (zh ? '\u6d88\u606f' : 'Messages') && p.value != null) {
+            lines.push(p.marker + ' ' + p.seriesName + ': ' + p.value);
+          }
+        });
+        // Model breakdown
+        var dm = dailyModels[date];
+        if (dm) {
+          lines.push('<br/><span style="color:#8b949e">' + (zh ? '\u6a21\u578b\u660e\u7ec6' : 'Models') + ':</span>');
+          Object.keys(dm).sort(function(a, b) { return dm[b] - dm[a]; }).forEach(function(m) {
+            lines.push('&nbsp;&nbsp;' + escHtml(m) + ': ' + fc(dm[m]));
+          });
+        }
+        return lines.join('<br/>');
+      }
+    },
+    legend: {data: [zh ? '\u82b1\u8d39' : 'Cost', zh ? '\u6d88\u606f' : 'Messages'], textStyle: {color: '#8b949e'}, top: 8},
+    grid: {left: 60, right: 60, top: 50, bottom: 70},
+    xAxis: {type: 'category', data: allDates, axisLabel: {color: '#8b949e', fontSize: 11, rotate: dates.length > 30 ? 45 : 0}, axisLine: {lineStyle: {color: '#30363d'}}},
+    yAxis: [
+      {type: 'value', name: zh ? '\u82b1\u8d39 ($)' : 'Cost ($)', nameTextStyle: {color: '#8b949e'}, axisLabel: {color: '#8b949e', formatter: function(v) { return '$' + v.toFixed(0); }}, splitLine: {lineStyle: {color: '#21262d'}}},
+      {type: 'value', name: zh ? '\u6d88\u606f' : 'Msgs', nameTextStyle: {color: '#8b949e'}, axisLabel: {color: '#8b949e'}, splitLine: {show: false}}
+    ],
+    dataZoom: [{type: 'slider', start: dates.length > 60 ? 50 : 0, end: 100, height: 24, bottom: 10, borderColor: '#30363d', fillerColor: 'rgba(88,212,171,.15)', handleStyle: {color: '#58d4ab'}, textStyle: {color: '#8b949e'}}],
+    series: [
+      {
+        name: zh ? '\u82b1\u8d39' : 'Cost', type: 'bar', data: fullCosts, yAxisIndex: 0,
+        itemStyle: {color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color: '#58d4ab'}, {offset: 1, color: '#2ea77a'}]), borderRadius: [3, 3, 0, 0]},
+        markPoint: {
+          symbol: 'circle', symbolSize: 14,
+          itemStyle: {color: 'rgba(248,81,73,.8)', borderColor: '#f85149', borderWidth: 2},
+          label: {show: false},
+          data: anomalyPoints
+        }
+      },
+      {
+        name: zh ? '\u6d88\u606f' : 'Messages', type: 'line', data: fullMsgs, yAxisIndex: 1,
+        smooth: true, symbol: 'none', lineStyle: {color: '#58a6ff', width: 2},
+        areaStyle: {color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color: 'rgba(88,166,255,.2)'}, {offset: 1, color: 'rgba(88,166,255,.02)'}])}
+      },
+      {
+        name: zh ? '\u9884\u6d4b' : 'Forecast', type: 'line', data: (function() {
+          return allDates.map(function(d) {
+            var match = forecastData.find(function(f) { return f[0] === d; });
+            return match ? match[1] : null;
+          });
+        })(),
+        yAxisIndex: 0, smooth: false, symbol: 'none',
+        lineStyle: {color: '#d4a04a', width: 2, type: 'dashed'},
+        connectNulls: false
+      }
+    ]
+  });
+  window.addEventListener('resize', function() { chart.resize(); });
+})();
+
+// ── Row 3a: Model Distribution ──
+(function() {
+  $('title-model').textContent = zh ? '\u6a21\u578b\u5206\u5e03' : 'Model Distribution';
+  var models = D.models || {};
+  var names = Object.keys(models).sort(function(a, b) { return models[b] - models[a]; });
+  var total = names.reduce(function(s, n) { return s + models[n]; }, 0);
+  if (names.length === 0) { $('model-area').textContent = zh ? '\u65e0\u6570\u636e' : 'No data'; return; }
+
+  var maxPct = total > 0 ? (models[names[0]] / total * 100) : 0;
+  if (maxPct > 90) {
+    // Progress bars mode
+    var html = '';
+    names.forEach(function(n) {
+      var p = total > 0 ? (models[n] / total * 100) : 0;
+      html += '<div class="pbar-wrap"><div class="pbar-label"><span>' + escHtml(n) + '</span><span>' + fc(models[n]) + ' (' + p.toFixed(1) + '%)</span></div><div class="pbar"><div class="pbar-fill" style="width:' + p.toFixed(1) + '%;background:var(--teal)"></div></div></div>';
+    });
+    $('model-area').insertAdjacentHTML('beforeend', html);
+  } else {
+    // Donut chart
+    var el = document.createElement('div');
+    el.style.width = '100%'; el.style.height = '260px';
+    $('model-area').appendChild(el);
+    var colors = ['#58d4ab', '#58a6ff', '#d4a04a', '#a371f7', '#f85149', '#d29922', '#484f58'];
+    var chart = echarts.init(el);
+    chart.setOption({
+      tooltip: {trigger: 'item', backgroundColor: '#161b22', borderColor: '#30363d', textStyle: {color: '#c9d1d9'}, formatter: function(p) { return escHtml(p.name) + '<br/>' + fc(p.value) + ' (' + p.percent + '%)'; }},
+      series: [{
+        type: 'pie', radius: ['45%', '72%'], center: ['50%', '50%'],
+        label: {color: '#c9d1d9', fontSize: 11, formatter: function(p) { return p.name.length > 15 ? p.name.substring(0, 12) + '...' : p.name; }},
+        data: names.map(function(n, i) { return {name: n, value: +models[n].toFixed(4), itemStyle: {color: colors[i % colors.length]}}; })
+      }]
+    });
+    window.addEventListener('resize', function() { chart.resize(); });
+  }
+})();
+
+// ── Row 3b: Token Composition ──
+(function() {
+  $('title-token').textContent = zh ? 'Token \u7ec4\u6210' : 'Token Composition';
+  var t = D.total;
+  var parts = [
+    {label: zh ? '\u8f93\u5165' : 'Input', value: t.inp || 0, color: 'var(--blue)'},
+    {label: zh ? '\u8f93\u51fa' : 'Output', value: t.out || 0, color: 'var(--teal)'},
+    {label: zh ? '\u7f13\u5b58\u5199\u5165' : 'Cache Write', value: t.cw || 0, color: 'var(--gold)'},
+    {label: zh ? '\u7f13\u5b58\u8bfb\u53d6' : 'Cache Read', value: t.cr || 0, color: 'var(--purple)'}
+  ];
+  var max = Math.max.apply(null, parts.map(function(p) { return p.value; }));
+  if (max === 0) max = 1;
+  var html = '';
+  parts.forEach(function(p) {
+    var w = (p.value / max * 100).toFixed(1);
+    html += '<div class="pbar-wrap"><div class="pbar-label"><span>' + p.label + '</span><span>' + fk(p.value) + '</span></div><div class="pbar"><div class="pbar-fill" style="width:' + w + '%;background:' + p.color + '"></div></div></div>';
+  });
+  html += '<div style="margin-top:12px;font-size:12px;color:var(--dim)">' + (zh ? '\u603b\u8ba1' : 'Total') + ': ' + fk(t.tokens || 0) + ' tokens</div>';
+  $('token-area').insertAdjacentHTML('beforeend', html);
+})();
+
+// ── Row 3c: Rate Limits ──
+(function() {
+  $('title-limits').textContent = zh ? '\u901f\u7387\u9650\u5236' : 'Rate Limits';
+  var limits = D.limits || {};
+  var keys = Object.keys(limits);
+  if (keys.length === 0) {
+    $('limits-area').textContent = zh ? '\u65e0\u9650\u5236\u6570\u636e' : 'No limit data';
+    return;
+  }
+  var html = '';
+  keys.forEach(function(k) {
+    var lim = limits[k];
+    var util = (lim.util || 0) * 100;
+    var color = util < 50 ? 'var(--teal)' : util < 80 ? 'var(--gold)' : 'var(--red)';
+    var resetText = '';
+    if (lim.resets_at) {
+      var now = new Date();
+      var reset = new Date(lim.resets_at);
+      var diffMin = Math.max(0, Math.round((reset - now) / 60000));
+      if (diffMin >= 60) {
+        resetText = (zh ? '\u91cd\u7f6e: ' : 'Resets: ') + Math.floor(diffMin / 60) + 'h ' + (diffMin % 60) + 'm';
+      } else {
+        resetText = (zh ? '\u91cd\u7f6e: ' : 'Resets: ') + diffMin + (zh ? ' \u5206\u949f' : ' min');
+      }
+    }
+    html += '<div class="limit-item"><div class="limit-header"><span class="limit-name">' + escHtml(k) + '</span><span class="limit-pct" style="color:' + color + '">' + util.toFixed(1) + '%</span></div>';
+    html += '<div class="limit-bar"><div class="limit-fill" style="width:' + Math.min(util, 100).toFixed(1) + '%;background:' + color + '"></div><div class="limit-mark" style="left:80%"></div></div>';
+    if (resetText) html += '<div class="limit-reset">' + escHtml(resetText) + '</div>';
+    html += '</div>';
+  });
+  $('limits-area').insertAdjacentHTML('beforeend', html);
+})();
+
+// ── Row 4a: Model Trend Stacked Area ──
+(function() {
+  var dm = D.daily_models || {};
+  var dates = Object.keys(dm).sort();
+  if (dates.length === 0) return;
+  var modelSet = {};
+  dates.forEach(function(d) { Object.keys(dm[d]).forEach(function(m) { modelSet[m] = true; }); });
+  var modelNames = Object.keys(modelSet);
+  var colors = ['#58d4ab', '#58a6ff', '#d4a04a', '#a371f7', '#f85149', '#d29922', '#484f58', '#79c0ff', '#7ee787'];
+
+  var chart = echarts.init($('chart-model-trend'));
+  chart.setOption({
+    title: {text: zh ? '\u6a21\u578b\u8d8b\u52bf' : 'Model Trend', textStyle: {color: '#c9d1d9', fontSize: 14, fontWeight: 600}, top: 4, left: 4},
+    tooltip: {trigger: 'axis', backgroundColor: '#161b22', borderColor: '#30363d', textStyle: {color: '#c9d1d9', fontSize: 12}},
+    legend: {data: modelNames, textStyle: {color: '#8b949e', fontSize: 11}, top: 28, type: 'scroll'},
+    grid: {left: 50, right: 20, top: 60, bottom: 30},
+    xAxis: {type: 'category', data: dates, axisLabel: {color: '#8b949e', fontSize: 10, rotate: dates.length > 20 ? 45 : 0}, axisLine: {lineStyle: {color: '#30363d'}}},
+    yAxis: {type: 'value', axisLabel: {color: '#8b949e', formatter: function(v) { return '$' + v.toFixed(0); }}, splitLine: {lineStyle: {color: '#21262d'}}},
+    series: modelNames.map(function(m, i) {
+      return {
+        name: m, type: 'line', stack: 'total', areaStyle: {opacity: 0.6},
+        emphasis: {focus: 'series'},
+        lineStyle: {width: 1, color: colors[i % colors.length]},
+        itemStyle: {color: colors[i % colors.length]},
+        symbol: 'none',
+        data: dates.map(function(d) { return dm[d][m] || 0; })
+      };
+    })
+  });
+  window.addEventListener('resize', function() { chart.resize(); });
+})();
+
+// ── Row 4b: 7x24 Heatmap ──
+(function() {
+  var hm = D.heatmap || {};
+  var weekdays = zh ? ['\u5468\u4e00', '\u5468\u4e8c', '\u5468\u4e09', '\u5468\u56db', '\u5468\u4e94', '\u5468\u516d', '\u5468\u65e5'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var hours = [];
+  for (var h = 0; h < 24; h++) hours.push(String(h).padStart(2, '0'));
+
+  var data = [];
+  var maxVal = 0;
+  for (var wd = 0; wd < 7; wd++) {
+    var wdData = hm[String(wd)] || {};
+    for (var hr = 0; hr < 24; hr++) {
+      var hrKey = String(hr).padStart(2, '0');
+      var val = wdData[hrKey] || 0;
+      data.push([hr, wd, val]);
+      if (val > maxVal) maxVal = val;
+    }
+  }
+
+  var chart = echarts.init($('chart-heatmap'));
+  chart.setOption({
+    title: {text: zh ? '\u6d3b\u52a8\u70ed\u529b\u56fe' : 'Activity Heatmap', textStyle: {color: '#c9d1d9', fontSize: 14, fontWeight: 600}, top: 4, left: 4},
+    tooltip: {backgroundColor: '#161b22', borderColor: '#30363d', textStyle: {color: '#c9d1d9'}, formatter: function(p) { return weekdays[p.value[1]] + ' ' + hours[p.value[0]] + ':00<br/>' + p.value[2] + (zh ? ' \u6761\u6d88\u606f' : ' msgs'); }},
+    grid: {left: 60, right: 40, top: 40, bottom: 30},
+    xAxis: {type: 'category', data: hours, axisLabel: {color: '#8b949e', fontSize: 10}, axisLine: {lineStyle: {color: '#30363d'}}, splitArea: {show: true, areaStyle: {color: ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']}}},
+    yAxis: {type: 'category', data: weekdays, axisLabel: {color: '#8b949e', fontSize: 11}, axisLine: {lineStyle: {color: '#30363d'}}},
+    visualMap: {min: 0, max: maxVal || 1, calculable: false, orient: 'horizontal', left: 'center', bottom: 2, itemWidth: 12, itemHeight: 80, textStyle: {color: '#8b949e', fontSize: 10}, inRange: {color: ['#161b22', '#0e4429', '#006d32', '#26a641', '#39d353']}},
+    series: [{
+      type: 'heatmap', data: data,
+      label: {show: false},
+      itemStyle: {borderColor: '#0d1117', borderWidth: 2, borderRadius: 3},
+      emphasis: {itemStyle: {borderColor: '#58a6ff', borderWidth: 2}}
+    }]
+  });
+  window.addEventListener('resize', function() { chart.resize(); });
+})();
+
+// ── Row 5a: Project Ranking ──
+(function() {
+  var projects = D.projects || {};
+  var names = Object.keys(projects).sort(function(a, b) { return projects[b].cost - projects[a].cost; });
+  if (names.length === 0) return;
+
+  var chart = echarts.init($('chart-projects'));
+  var reversed = names.slice().reverse();
+  chart.setOption({
+    title: {text: zh ? '\u9879\u76ee\u6392\u540d' : 'Project Ranking', textStyle: {color: '#c9d1d9', fontSize: 14, fontWeight: 600}, top: 4, left: 4},
+    tooltip: {backgroundColor: '#161b22', borderColor: '#30363d', textStyle: {color: '#c9d1d9'}, formatter: function(p) { return escHtml(p.name) + '<br/>' + fc(p.value) + ' | ' + (projects[p.name] ? projects[p.name].msgs : 0) + (zh ? ' \u6761\u6d88\u606f' : ' msgs'); }},
+    grid: {left: 140, right: 60, top: 40, bottom: 20},
+    xAxis: {type: 'value', axisLabel: {color: '#8b949e', formatter: function(v) { return '$' + v.toFixed(0); }}, splitLine: {lineStyle: {color: '#21262d'}}},
+    yAxis: {type: 'category', data: reversed.map(function(n) { return n.length > 18 ? n.substring(0, 15) + '...' : n; }), axisLabel: {color: '#c9d1d9', fontSize: 11}},
+    series: [{
+      type: 'bar',
+      data: reversed.map(function(n) { return {name: n, value: +projects[n].cost.toFixed(4)}; }),
+      itemStyle: {color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{offset: 0, color: '#2ea77a'}, {offset: 1, color: '#58d4ab'}]), borderRadius: [0, 4, 4, 0]},
+      barMaxWidth: 20,
+      label: {show: true, position: 'right', color: '#8b949e', fontSize: 11, formatter: function(p) { return fc(p.value); }}
+    }]
+  });
+  window.addEventListener('resize', function() { chart.resize(); });
+})();
+
+// ── Row 5b: Machine Cards ──
+(function() {
+  $('title-machines').textContent = zh ? '\u673a\u5668\u5bf9\u6bd4' : 'Machine Comparison';
+  var machines = D.machines || [];
+  if (machines.length === 0) { $('machines-area').textContent = zh ? '\u65e0\u6570\u636e' : 'No data'; return; }
+  var maxCost = Math.max.apply(null, machines.map(function(m) { return m.cost; }));
+  if (maxCost === 0) maxCost = 1;
+  var html = '';
+  machines.forEach(function(m) {
+    var w = (m.cost / maxCost * 100).toFixed(1);
+    html += '<div class="machine-card">';
+    html += '<div class="machine-name">' + escHtml(m.name) + '</div>';
+    html += '<div class="machine-stat"><span>' + (zh ? '\u82b1\u8d39' : 'Cost') + '</span><span>' + fc(m.cost) + '</span></div>';
+    html += '<div class="machine-stat"><span>' + (zh ? '\u4f1a\u8bdd' : 'Sessions') + '</span><span>' + (m.sessions || 0) + '</span></div>';
+    html += '<div class="pbar" style="margin-top:6px"><div class="pbar-fill" style="width:' + w + '%;background:var(--blue)"></div></div>';
+    html += '</div>';
+  });
+  $('machines-area').insertAdjacentHTML('beforeend', html);
+})();
+
+// ── Row 6: Daily Detail Table ──
+(function() {
+  $('title-table').textContent = zh ? '\u6bcf\u65e5\u660e\u7ec6' : 'Daily Details';
+  var daily = D.daily || {};
+  var sessions = D.sessions_by_day || {};
+  var dates = Object.keys(daily).sort().reverse();
+
+  // Table header
+  var thHtml = '<tr><th>' + (zh ? '\u65e5\u671f' : 'Date') + '</th><th>' + (zh ? '\u82b1\u8d39' : 'Cost') + '</th><th>' + (zh ? '\u6d88\u606f' : 'Msgs') + '</th><th>Tokens</th><th>' + (zh ? '\u4f1a\u8bdd' : 'Sessions') + '</th></tr>';
+  $('table-head').insertAdjacentHTML('beforeend', thHtml);
+
+  var html = '';
+  dates.forEach(function(d) {
+    var row = daily[d];
+    var hasSessions = sessions[d] && sessions[d].length > 0;
+    var rowId = 'dr-' + d.replace(/-/g, '');
+    html += '<tr class="' + (hasSessions ? 'clickable' : '') + '" ' + (hasSessions ? 'data-date="' + d + '"' : '') + '>';
+    html += '<td>' + (hasSessions ? '\u25b6 ' : '') + d + '</td>';
+    html += '<td>' + fc(row.cost || 0) + '</td>';
+    html += '<td>' + (row.msgs || 0) + '</td>';
+    html += '<td>' + fk(row.tokens || 0) + '</td>';
+    html += '<td>' + (row.sessions || 0) + '</td>';
+    html += '</tr>';
+    // Sub-rows (hidden by default)
+    if (hasSessions) {
+      sessions[d].forEach(function(s, i) {
+        html += '<tr class="sub-row hidden" data-parent="' + d + '">';
+        html += '<td>' + escHtml(s.project || '\u2014') + '</td>';
+        html += '<td>' + fc(s.cost || 0) + '</td>';
+        html += '<td>' + (s.msgs || 0) + '</td>';
+        html += '<td colspan="2">' + escHtml(s.model || '\u2014') + '</td>';
+        html += '</tr>';
+      });
+    }
+  });
+  $('table-body').insertAdjacentHTML('beforeend', html);
+
+  // Click to expand/collapse
+  $('table-body').addEventListener('click', function(e) {
+    var tr = e.target.closest('tr.clickable');
+    if (!tr) return;
+    var date = tr.getAttribute('data-date');
+    if (!date) return;
+    var subs = document.querySelectorAll('tr.sub-row[data-parent="' + date + '"]');
+    var isHidden = subs.length > 0 && subs[0].classList.contains('hidden');
+    var arrow = isHidden ? '\u25bc ' : '\u25b6 ';
+    tr.querySelector('td').textContent = arrow + date;
+    subs.forEach(function(s) { s.classList.toggle('hidden'); });
+  });
+})();
+
+// ── Footer ──
+$('footer-text').textContent = (zh ? '\u751f\u6210\u4e8e ' : 'Generated at ') + (D.generated || '') + ' | Claude Code Token Stats Dashboard';
+</script>
+</body>
+</html>
+"""
     return template.replace("__DATA__", payload)
 
 # ─── Render ──────────────────────────────────────────────────────
