@@ -1254,8 +1254,8 @@ h3{font-size:12px;color:#8b949e;font-weight:500;margin-bottom:10px;text-transfor
 <div class="card s6"><h3 id="h3"></h3><div id="c3" class="ch"></div></div>
 <div class="card s6"><h3 id="h4"></h3><div id="c4" class="ch"></div></div>
 <!-- Row 5: Machines + Daily detail table -->
-<div class="card s4"><h3 id="h6"></h3><div id="c6" class="ch"></div></div>
-<div class="card s8"><h3 id="h8"></h3><div id="c8" style="max-height:270px;overflow-y:auto"></div></div>
+<div class="card s4" id="card6"><h3 id="h6"></h3><div id="c6" class="ch"></div></div>
+<div class="card s8" id="card8"><h3 id="h8"></h3><div id="c8" style="max-height:400px;overflow-y:auto"></div></div>
 </div>
 <script>
 const D=__DATA__;
@@ -1391,7 +1391,7 @@ tooltip:{backgroundColor:'#1c2128',borderColor:'#30363d',textStyle:{color:'#c9d1
 grid:{left:50,right:30,top:10,bottom:30},
 xAxis:{type:'category',data:hrs,axisLabel:{color:'#8b949e',fontSize:10,interval:2},axisLine:{lineStyle:{color:'#30363d'}}},
 yAxis:{type:'category',data:wdays,axisLabel:{color:'#8b949e',fontSize:11},axisLine:{lineStyle:{color:'#30363d'}}},
-visualMap:{min:0,max:mx||1,calculable:false,orient:'horizontal',left:'center',bottom:2,itemWidth:10,itemHeight:60,textStyle:{color:'#8b949e',fontSize:9},inRange:{color:['#161b22','#0e4429','#006d32','#26a641','#39d353']}},
+visualMap:{min:0,max:mx||1,calculable:false,orient:'horizontal',left:'center',bottom:2,itemWidth:12,itemHeight:200,textStyle:{color:'#8b949e',fontSize:9},inRange:{color:['#161b22','#0e4429','#006d32','#26a641','#39d353']}},
 series:[{type:'heatmap',data:data,label:{show:false},itemStyle:{borderColor:'#0d1117',borderWidth:2,borderRadius:2},emphasis:{itemStyle:{borderColor:'#58a6ff'}}}]});
 })();
 
@@ -1407,43 +1407,62 @@ series:[{type:'bar',data:pc,barWidth:'55%',itemStyle:{color:C.g,borderRadius:[0,
 label:{show:true,position:'right',color:'#8b949e',fontSize:9,formatter:p=>fc(p.value)}}],
 grid:{left:85,right:55,top:8,bottom:28}});
 
-// 6. Machines (bar)
+// 6. Machines — hide if single, expand table to full width
+if(D.machines.length>1){
 $('h6').textContent=t('machines');
-if(D.machines.length>1){echarts.init($('c6')).setOption({
+echarts.init($('c6')).setOption({
 tooltip:{...tt},
 xAxis:{type:'category',data:D.machines.map(m=>m.name),...ax,axisLabel:{...ax.axisLabel,fontSize:9}},
 yAxis:{type:'value',...ax,axisLabel:{...ax.axisLabel,formatter:v=>'$'+v}},
 series:[{type:'bar',data:D.machines.map(m=>({value:m.cost,itemStyle:{color:C.t,borderRadius:[4,4,0,0]}})),
 barWidth:'45%',label:{show:true,position:'top',color:'#8b949e',fontSize:10,formatter:p=>fc(p.value)}}],
-grid:{left:50,right:12,top:25,bottom:28}});}
-else{$('c6').textContent='Single machine';$('c6').className='empty';}
+grid:{left:50,right:12,top:25,bottom:28}});
+}else{$('card6').style.display='none';$('card8').style.gridColumn='span 12';}
 
-// 8. Daily Detail Table with Session Drill-down
+// 8. Daily Detail Table — all dates filled, all expandable, no sessions column
 $('h8').textContent=zh?'每日明细':'Daily Details';
 (function(){
 var daily=D.daily||{};var sessions=D.sessions_by_day||{};
+// Fill all dates from d_min to today (no gaps)
+var allDates=Object.keys(daily);
+var minD=allDates.length?allDates.sort()[0]:null;
+if(minD){var cur=new Date(minD+'T00:00:00');var today=new Date();today.setHours(0,0,0,0);
+while(cur<=today){var ds=cur.toISOString().slice(0,10);if(!daily[ds])daily[ds]={cost:0,msgs:0,tokens:0};
+cur.setDate(cur.getDate()+1);}}
 var dates=Object.keys(daily).sort().reverse();
 var tbl=document.createElement('table');
 tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px;font-family:Menlo,monospace';
 var thead=tbl.createTHead();var hdr=thead.insertRow();
-[zh?'日期':'Date',zh?'费用':'Cost',zh?'消息':'Msgs','Tokens',zh?'会话':'Sess'].forEach(function(h){
+[zh?'日期':'Date',zh?'费用':'Cost',zh?'消息':'Msgs','Tokens'].forEach(function(h){
 var th=document.createElement('th');th.textContent=h;
 th.style.cssText='text-align:right;padding:6px 8px;color:#8b949e;border-bottom:1px solid #30363d;font-weight:500';
-if(h===(zh?'日期':'Date'))th.style.textAlign='left';thead.rows[0].appendChild(th);});
+if(h===(zh?'日期':'Date'))th.style.textAlign='left';hdr.appendChild(th);});
 var tbody=tbl.createTBody();
+var noData=zh?'当天没有消耗 Token':'No token usage this day';
 dates.forEach(function(d){
-var row=daily[d];var hasSess=sessions[d]&&sessions[d].length>0;
-var tr=tbody.insertRow();tr.style.cssText='cursor:'+(hasSess?'pointer':'default');
-if(hasSess)tr.setAttribute('data-date',d);
-[{v:(hasSess?'\u25b6 ':'')+d.slice(5),a:'left'},{v:fc(row.cost||0),a:'right'},{v:(row.msgs||0).toLocaleString(),a:'right'},{v:fk(row.tokens||0),a:'right'},{v:row.sessions||0,a:'right'}].forEach(function(c){
-var td=tr.insertCell();td.textContent=c.v;td.style.cssText='padding:5px 8px;border-bottom:1px solid #21262d;color:#c9d1d9;text-align:'+c.a;});
-if(hasSess){tr.style.borderLeft='2px solid transparent';
+var row=daily[d];var isEmpty=(row.cost||0)===0&&(row.msgs||0)===0;
+var hasSess=sessions[d]&&sessions[d].length>0;
+var tr=tbody.insertRow();
+tr.setAttribute('data-date',d);
+tr.style.cssText='cursor:pointer';
 tr.onmouseenter=function(){this.style.background='rgba(88,166,255,0.06)';};
 tr.onmouseleave=function(){this.style.background='';};
-sessions[d].forEach(function(s){
+if(isEmpty){
+[{v:'\u25b6 '+d.slice(5),a:'left'},{v:'\u2014',a:'right'},{v:'\u2014',a:'right'},{v:'\u2014',a:'right'}].forEach(function(c){
+var td=tr.insertCell();td.textContent=c.v;td.style.cssText='padding:5px 8px;border-bottom:1px solid #21262d;color:#484f58;text-align:'+c.a;});
+var emptyRow=tbody.insertRow();emptyRow.style.display='none';emptyRow.setAttribute('data-parent',d);
+var etd=emptyRow.insertCell();etd.colSpan=4;etd.textContent=noData;
+etd.style.cssText='padding:8px 8px 8px 24px;color:#484f58;font-style:italic;border-bottom:1px solid #1a1f26;font-size:11px';
+}else{
+[{v:'\u25b6 '+d.slice(5),a:'left'},{v:fc(row.cost||0),a:'right'},{v:(row.msgs||0).toLocaleString(),a:'right'},{v:fk(row.tokens||0),a:'right'}].forEach(function(c){
+var td=tr.insertCell();td.textContent=c.v;td.style.cssText='padding:5px 8px;border-bottom:1px solid #21262d;color:#c9d1d9;text-align:'+c.a;});
+if(hasSess){sessions[d].forEach(function(s){
 var sr=tbody.insertRow();sr.style.display='none';sr.setAttribute('data-parent',d);
-[{v:'  '+((s.project||'\u2014').length>14?(s.project||'').substring(0,12)+'..':s.project||'\u2014'),a:'left'},{v:fc(s.cost||0),a:'right'},{v:s.msgs||0,a:'right'},{v:s.model||'\u2014',a:'right'},{v:'',a:'right'}].forEach(function(c){
-var td=sr.insertCell();td.textContent=c.v;td.style.cssText='padding:3px 8px;border-bottom:1px solid #1a1f26;color:#8b949e;text-align:'+c.a+';font-size:11px';});});}});
+[{v:'  '+(s.project||'\u2014'),a:'left'},{v:fc(s.cost||0),a:'right'},{v:s.msgs||0,a:'right'},{v:s.model||'\u2014',a:'right'}].forEach(function(c){
+var td=sr.insertCell();td.textContent=c.v;td.style.cssText='padding:3px 8px;border-bottom:1px solid #1a1f26;color:#8b949e;text-align:'+c.a+';font-size:11px';});});}
+else{var nr=tbody.insertRow();nr.style.display='none';nr.setAttribute('data-parent',d);
+var ntd=nr.insertCell();ntd.colSpan=4;ntd.textContent=zh?'无 Session 明细（来自远程同步）':'No session details (from remote sync)';
+ntd.style.cssText='padding:6px 8px 6px 24px;color:#484f58;font-style:italic;border-bottom:1px solid #1a1f26;font-size:11px';}}});
 tbody.addEventListener('click',function(e){
 var tr=e.target.closest('tr[data-date]');if(!tr||tr.getAttribute('data-parent'))return;
 var d=tr.getAttribute('data-date');var subs=tbody.querySelectorAll('tr[data-parent="'+d+'"]');
