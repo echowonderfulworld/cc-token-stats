@@ -1238,26 +1238,33 @@ tkHtml+='<div style="margin:10px 0"><div style="display:flex;justify-content:spa
 $('c7').style.cssText='padding:5px 0';$('c7').className='';
 $('c7').insertAdjacentHTML('beforeend',tkHtml);
 
-// 5. Rate Limits (gauges)
+// 5. Rate Limits (battery-style progress bars)
 $('h5').textContent=t('limits');
 const ln={five_hour:'Session (5h)',seven_day:'Weekly (7d)',seven_day_sonnet:'Sonnet',seven_day_opus:'Opus'};
 const le=Object.entries(D.limits);
-if(le.length>0){const gd=le.map(([k,v])=>({name:ln[k]||k,value:Math.round(v.util)}));
-const n=gd.length;
-// Pre-compute positions: 1→center, 2→left/right, 3→top-left/top-right/bottom-center, 4→2x2 grid
-const pos=n===1?[['50%','55%']]:n===2?[['30%','55%'],['70%','55%']]:n===3?[['25%','40%'],['75%','40%'],['50%','85%']]:
-[['28%','38%'],['72%','38%'],['28%','82%'],['72%','82%']];
-const rd=n<=2?'38%':n===3?'30%':'28%';
-const fs=n<=2?18:15;
-echarts.init($('c5')).setOption({
-series:gd.map((g,i)=>({type:'gauge',startAngle:200,endAngle:-20,
-center:pos[i]||['50%','50%'],radius:rd,min:0,max:100,
-axisLine:{lineStyle:{width:n<=2?10:8,color:[[.6,C.t],[.8,C.w],[1,C.d]]}},
-pointer:{show:false},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},
-progress:{show:true,width:n<=2?10:8,roundCap:true},
-detail:{fontSize:fs,color:'#e6edf3',offsetCenter:[0,'-5%'],formatter:'{value}%'},
-title:{fontSize:n<=2?10:9,color:'#8b949e',offsetCenter:[0,'28%']},data:[g]}))
-});}else{$('c5').textContent='No data';$('c5').className='empty';}
+if(le.length>0){
+let limHtml='';
+le.forEach(([k,v])=>{
+const name=ln[k]||k;const pct=Math.round(v.util);
+const barColor=pct>=80?C.d:pct>=60?C.w:C.t;
+const rst=v.resets_at;let rstLabel='';
+if(rst){try{const rt=new Date(rst);const now=new Date();const diff=Math.max(0,rt-now);
+const h=Math.floor(diff/3600000);const m=Math.floor((diff%3600000)/60000);
+rstLabel=h>0?(h+'h'+m+'m'):(m+'m');}catch(e){}}
+limHtml+='<div style="margin:14px 0">'
++'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
++'<span style="color:#e6edf3;font-size:13px;font-weight:600">'+name+'</span>'
++'<span style="font-size:11px;color:#8b949e">'
++'<span style="color:'+barColor+';font-weight:700;font-size:16px">'+pct+'%</span>'
++(rstLabel?(' \u00b7 \u21bb '+rstLabel):'')+'</span></div>'
++'<div style="background:#21262d;border-radius:5px;height:14px;overflow:hidden;position:relative">'
++'<div style="background:linear-gradient(90deg,'+barColor+','+barColor+'cc);height:100%;border-radius:5px;width:'+Math.max(pct,1)+'%;'
++'box-shadow:0 0 8px '+barColor+'30"></div>'
++(pct<80?'<div style="position:absolute;left:80%;top:0;bottom:0;width:1px;background:#484f58" title="80%"></div>':'')
++'</div></div>';});
+$('c5').style.cssText='padding:8px 0';$('c5').className='';
+$('c5').insertAdjacentHTML('beforeend',limHtml);
+}else{$('c5').textContent='No data';$('c5').className='empty';}
 
 // 3. Hourly Activity (gradient bars)
 $('h3').textContent=t('hourly');
