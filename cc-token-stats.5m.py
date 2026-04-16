@@ -1595,10 +1595,7 @@ data:[{value:dimOrder.map(function(d){return det[d]||0;})}]}]});
 window.addEventListener('resize',function(){chart.resize();});
 })();
 
-// ═══ FUN FEATURES (CSS-styled, no emoji) ═══
-
-// Helper: CSS icon dot
-function dot(color,letter){return '<div style="width:28px;height:28px;border-radius:50%;background:'+color+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#0d1117;flex-shrink:0">'+letter+'</div>';}
+// ═══ FUN FEATURES ═══
 
 // F1. Live Burn Counter
 (function(){
@@ -1607,7 +1604,7 @@ var avg7=dailyVals.slice(-7).reduce(function(a,b){return a+b;},0)/Math.max(daily
 var perSec=avg7/86400;
 if(perSec<=0){$('cardBurn').style.display='none';return;}
 var base=D.total.cost;var startTime=Date.now();
-$('burnCounter').insertAdjacentHTML('beforeend','<div style="font-size:11px;color:#484f58;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">'+(zh?'实时费用计数器':'LIVE COST COUNTER')+'</div><div id="burnNum" style="font-size:40px;font-weight:700;color:#58d4ab;font-family:Menlo,monospace;letter-spacing:-1px"></div><div style="font-size:11px;color:#30363d;margin-top:4px">'+(zh?'基于近 7 天日均 '+fc(avg7)+' 的消耗速率':'Based on 7-day avg '+fc(avg7)+'/day')+'</div>');
+$('burnCounter').insertAdjacentHTML('beforeend','<div style="font-size:11px;color:#484f58;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">'+(zh?'\u5b9e\u65f6\u8d39\u7528\u8ba1\u6570\u5668':'LIVE COST COUNTER')+'</div><div id="burnNum" style="font-size:40px;font-weight:700;color:#58d4ab;font-family:Menlo,monospace;letter-spacing:-1px"></div><div style="font-size:11px;color:#30363d;margin-top:4px">'+(zh?'\u57fa\u4e8e\u8fd1 7 \u5929\u65e5\u5747 '+fc(avg7)+' \u7684\u6d88\u8017\u901f\u7387':'Based on 7-day avg '+fc(avg7)+'/day')+'</div>');
 var numEl=document.getElementById('burnNum');
 setInterval(function(){var elapsed=(Date.now()-startTime)/1000;numEl.textContent=fc(base+perSec*elapsed);},80);
 })();
@@ -1624,47 +1621,39 @@ var streak=0;for(var i=dates.length-1;i>=0;i--){if(i===dates.length-1||(new Date
 var codeLines=Math.round(D.total.out/15);
 var codeLinesStr=codeLines>=10000?(codeLines/1000).toFixed(0)+'K':codeLines.toLocaleString();
 var totalMsgs=Object.values(daily).reduce(function(a,d){return a+d.msgs;},0);
-var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'使用报告':'Usage Insights')+'</div>';
-var items=[
-{c:'#58a6ff',l:'T',text:zh?'最活跃时段 <b style="color:#e6edf3">'+peakH+':00</b>':'Peak hour <b style="color:#e6edf3">'+peakH+':00</b>'},
-{c:'#f85149',l:'$',text:zh?'最烧钱 <b style="color:#e6edf3">'+maxDay.slice(5)+'</b> ('+fc(maxCost)+')':'Biggest day <b style="color:#e6edf3">'+maxDay.slice(5)+'</b> ('+fc(maxCost)+')'},
-{c:'#d4a04a',l:'P',text:zh?'最耗项目 <b style="color:#e6edf3">'+topProj+'</b>':'Top project <b style="color:#e6edf3">'+topProj+'</b>'},
-{c:'#f0883e',l:streak,text:zh?'<b style="color:#e6edf3">天</b>连续使用':'<b style="color:#e6edf3">day</b> streak'},
-{c:'#a371f7',l:'</>',text:zh?'生成约 <b style="color:#e6edf3">'+codeLinesStr+'</b> 行代码':'~<b style="color:#e6edf3">'+codeLinesStr+'</b> lines generated'},
-{c:'#3fb950',l:'#',text:zh?'共 <b style="color:#e6edf3">'+totalMsgs.toLocaleString()+'</b> 条消息':'<b style="color:#e6edf3">'+totalMsgs.toLocaleString()+'</b> messages total'},
-];
-items.forEach(function(it){
-html+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #21262d">';
-html+=dot(it.c,it.l);
-html+='<span style="font-size:12px;color:#8b949e">'+it.text+'</span></div>';});
+var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'\u4f7f\u7528\u62a5\u544a':'Usage Insights')+'</div>';
+function row(icon,text){return '<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #21262d"><span style="font-size:15px;width:24px;text-align:center;flex-shrink:0">'+icon+'</span><span style="font-size:12px;color:#8b949e;line-height:1.5">'+text+'</span></div>';}
+html+=row('\u23f1',zh?'\u6700\u6d3b\u8dc3\u65f6\u6bb5 <b style="color:#e6edf3">'+peakH+':00</b>':'Peak hour <b style="color:#e6edf3">'+peakH+':00</b>');
+html+=row('\u2728',zh?'\u6700\u70e7\u94b1 <b style="color:#e6edf3">'+maxDay.slice(5)+'</b> ('+fc(maxCost)+')':'Biggest day <b style="color:#e6edf3">'+maxDay.slice(5)+'</b> ('+fc(maxCost)+')');
+html+=row('\u25b6',zh?'\u6700\u8017\u9879\u76ee <b style="color:#e6edf3">'+topProj+'</b>':'Top project <b style="color:#e6edf3">'+topProj+'</b>');
+html+=row('\u2693',zh?'\u8fde\u7eed\u4f7f\u7528 <b style="color:#e6edf3">'+streak+' \u5929</b>':'Streak <b style="color:#e6edf3">'+streak+' days</b>');
+html+=row('\u270e',zh?'\u751f\u6210\u7ea6 <b style="color:#e6edf3">'+codeLinesStr+'</b> \u884c\u4ee3\u7801':'~<b style="color:#e6edf3">'+codeLinesStr+'</b> lines generated');
+html+=row('\u2261',zh?'\u5171 <b style="color:#e6edf3">'+totalMsgs.toLocaleString()+'</b> \u6761\u6d88\u606f':'<b style="color:#e6edf3">'+totalMsgs.toLocaleString()+'</b> messages');
 $('wrappedPanel').insertAdjacentHTML('beforeend',html);
 })();
 
 // F3. Cost Equivalents
 (function(){
 var cost=D.total.cost;if(cost<=0){$('cardEquiv').style.display='none';return;}
-var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'费用等价物':'Cost Equivalents')+'</div>';
-var equivs=zh?[
-{v:Math.round(cost/5),u:'杯星巴克',c:'#3fb950',l:'C'},
-{v:Math.round(cost/30),u:'顿外卖',c:'#f0883e',l:'F'},
-{v:Math.round(cost/1299),u:'台 MacBook Air',c:'#8b949e',l:'M'},
-{v:Math.round(cost/15),u:'月 Netflix',c:'#f85149',l:'N'},
-{v:(cost/500).toFixed(1),u:'个初级工程师·天',c:'#58a6ff',l:'D'},
-]:[
-{v:Math.round(cost/5),u:'Starbucks lattes',c:'#3fb950',l:'C'},
-{v:Math.round(cost/30),u:'lunches',c:'#f0883e',l:'F'},
-{v:Math.round(cost/1299),u:'MacBook Airs',c:'#8b949e',l:'M'},
-{v:Math.round(cost/15),u:'months Netflix',c:'#f85149',l:'N'},
-{v:(cost/500).toFixed(1),u:'junior dev days',c:'#58a6ff',l:'D'},
-];
-equivs.forEach(function(e){
-html+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #21262d">';
-html+=dot(e.c,e.l);
-html+='<span style="font-size:12px;color:#c9d1d9"><b style="color:#d4a04a;font-size:18px;font-weight:800">'+e.v+'</b> <span style="color:#8b949e">'+e.u+'</span></span></div>';});
+var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'\u8d39\u7528\u7b49\u4ef7\u7269':'Cost Equivalents')+'</div>';
+function eqRow(val,unit){return '<div style="padding:9px 0;border-bottom:1px solid #21262d"><b style="color:#d4a04a;font-size:20px;font-weight:800">'+val+'</b> <span style="color:#8b949e;font-size:12px">'+unit+'</span></div>';}
+if(zh){
+html+=eqRow(Math.round(cost/5),'\u676f\u661f\u5df4\u514b');
+html+=eqRow(Math.round(cost/30),'\u987f\u5916\u5356');
+html+=eqRow(Math.round(cost/1299),'\u53f0 MacBook Air');
+html+=eqRow(Math.round(cost/15),'\u6708 Netflix');
+html+=eqRow((cost/500).toFixed(1),'\u4e2a\u521d\u7ea7\u5de5\u7a0b\u5e08\u00b7\u5929');
+}else{
+html+=eqRow(Math.round(cost/5),'Starbucks lattes');
+html+=eqRow(Math.round(cost/30),'lunches');
+html+=eqRow(Math.round(cost/1299),'MacBook Airs');
+html+=eqRow(Math.round(cost/15),'months of Netflix');
+html+=eqRow((cost/500).toFixed(1),'junior dev days');
+}
 $('equivPanel').insertAdjacentHTML('beforeend',html);
 })();
 
-// F4. Achievement Badges (CSS-styled, no emoji)
+// F4. Achievement Badges
 (function(){
 var daily=D.daily||{};var dates=Object.keys(daily).sort();
 var hourly=D.hourly||{};var models=D.models||{};var projects=D.projects||{};
@@ -1677,33 +1666,33 @@ for(var d in sbd){sbd[d].forEach(function(s){if(s.msgs>maxSessMsgs)maxSessMsgs=s
 var maxDayCost=0;dates.forEach(function(d){if(daily[d].cost>maxDayCost)maxDayCost=daily[d].cost;});
 var streak=0;for(var i=dates.length-1;i>=0;i--){if(i===dates.length-1||(new Date(dates[i+1])-new Date(dates[i]))/(86400000)<=1.5)streak++;else break;}
 var projCount=Object.keys(projects).length;
-// [letter, color, name_zh, name_en, unlocked]
+// [icon, name_zh, name_en, unlocked]
 var badges=[
-['$','#3fb950','百刀斩','$100 Club',cost>=100],
-['K','#58a6ff','千刀斩','$1K Club',cost>=1000],
-['3K','#a371f7','三千刀斩','$3K Club',cost>=3000],
-['N','#484f58','夜猫子','Night Owl',lateCount>=50],
-['N+','#1c2128','彻夜者','Vampire',lateCount>=200],
-['O','#a371f7','Opus 信徒','Opus Fan',opusPct>=90],
-['M','#d29922','一镜到底','Marathon',maxSessMsgs>=200],
-['7','#f0883e','七日连击','7d Streak',streak>=7],
-['30','#f85149','月度达人','30d Streak',streak>=30],
-['5+','#58d4ab','多栖动物','Multi-Proj',projCount>=5],
-['!','#d4a04a','大手笔','Big Day',maxDayCost>=200],
-['100','#3fb950','百会达人','100 Sess',sessions>=100],
+['\u2605','\u767e\u5200\u65a9','$100 Club',cost>=100],
+['\u2605\u2605','\u5343\u5200\u65a9','$1K Club',cost>=1000],
+['\u2605\u2605\u2605','\u4e09\u5343\u5200\u65a9','$3K Club',cost>=3000],
+['\u263e','\u591c\u732b\u5b50','Night Owl',lateCount>=50],
+['\u2600','\u5f7b\u591c\u8005','Insomniac',lateCount>=200],
+['\u2666','\u4fe1\u5f92','Opus Fan',opusPct>=90],
+['\u21e5','\u4e00\u955c\u5230\u5e95','Marathon',maxSessMsgs>=200],
+['7\u00d7','\u4e03\u65e5\u8fde\u51fb','7d Streak',streak>=7],
+['30\u00d7','\u6708\u5ea6\u8fbe\u4eba','30d Streak',streak>=30],
+['\u229b','\u591a\u680f\u52a8\u7269','Multi-Proj',projCount>=5],
+['\u25b2','\u5927\u624b\u7b14','Big Day',maxDayCost>=200],
+['\u2102','\u767e\u4f1a\u8fbe\u4eba','100 Sess',sessions>=100],
 ];
-var unlocked=badges.filter(function(b){return b[4];});
-var locked=badges.filter(function(b){return !b[4];});
-var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'成就徽章':'Achievements')+' <span style="color:#484f58">'+unlocked.length+'/'+badges.length+'</span></div>';
-html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+var unlocked=badges.filter(function(b){return b[3];});
+var locked=badges.filter(function(b){return !b[3];});
+var html='<div style="font-size:13px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">'+(zh?'\u6210\u5c31\u5fbd\u7ae0':'Achievements')+' <span style="color:#484f58">'+unlocked.length+'/'+badges.length+'</span></div>';
+html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px">';
 unlocked.forEach(function(b){
-html+='<div style="background:#1c2128;border:1px solid '+b[1]+';border-radius:10px;padding:10px 12px;text-align:center;min-width:80px">';
-html+='<div style="width:36px;height:36px;border-radius:50%;background:'+b[1]+';margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#0d1117">'+b[0]+'</div>';
-html+='<div style="font-size:10px;color:#c9d1d9;font-weight:600">'+(zh?b[2]:b[3])+'</div></div>';});
+html+='<div style="background:#1c2128;border:1px solid #58d4ab40;border-radius:10px;padding:12px 6px;text-align:center">';
+html+='<div style="font-size:20px;color:#58d4ab;margin-bottom:4px">'+b[0]+'</div>';
+html+='<div style="font-size:10px;color:#c9d1d9;font-weight:600">'+(zh?b[1]:b[2])+'</div></div>';});
 locked.forEach(function(b){
-html+='<div style="background:#161b22;border:1px solid #21262d;border-radius:10px;padding:10px 12px;text-align:center;min-width:80px;opacity:0.3">';
-html+='<div style="width:36px;height:36px;border-radius:50%;background:#30363d;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#484f58">'+b[0]+'</div>';
-html+='<div style="font-size:10px;color:#484f58">'+(zh?b[2]:b[3])+'</div></div>';});
+html+='<div style="background:#161b22;border:1px solid #21262d;border-radius:10px;padding:12px 6px;text-align:center;opacity:0.25">';
+html+='<div style="font-size:20px;color:#484f58;margin-bottom:4px">'+b[0]+'</div>';
+html+='<div style="font-size:10px;color:#484f58">'+(zh?b[1]:b[2])+'</div></div>';});
 html+='</div>';
 $('badgesPanel').insertAdjacentHTML('beforeend',html);
 })();
