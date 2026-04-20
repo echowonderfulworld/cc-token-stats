@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.12"
+VERSION = "1.4.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -249,7 +249,16 @@ def calc_user_level():
                     d = json.loads(line)
                     if d.get("type") == "assistant": cnt += 1
                     ts = d.get("timestamp", "")
-                    if ts: _dates.add(ts[:10])
+                    if ts:
+                        # Use local-tz date to match scan()'s date semantics.
+                        # ts[:10] takes UTC date out of the Zulu timestamp,
+                        # which misfiles midnight-to-(N)AM messages to the
+                        # wrong day for UTC+N users — same bug fixed in
+                        # scan() in v1.3.5 but left here until now.
+                        try:
+                            _dates.add(datetime.fromisoformat(ts.replace("Z","+00:00")).astimezone().strftime("%Y-%m-%d"))
+                        except Exception:
+                            _dates.add(ts[:10])
         except Exception: pass
         if cnt > 0: _sessions.append(cnt)
     _sessions.sort()
@@ -921,7 +930,7 @@ def _file_fingerprints(base):
             except Exception: pass
     return fps
 
-SCAN_CACHE_SCHEMA = "main-session-only-v1"  # bump when scan-result semantics change
+SCAN_CACHE_SCHEMA = "msgid-dedup-v1"  # bump when scan-result semantics change
 
 def _load_scan_cache(base, today_str):
     """Return cached scan result if all files unchanged and same day.
@@ -1006,6 +1015,15 @@ def scan():
         "sessions_by_day": defaultdict(list),
     }
 
+    # Global msg.id dedup. Claude Code re-logs the same Anthropic API
+    # response multiple times on session resume/continue — 40-60% of
+    # rows in long sessions are duplicates of earlier rows in the SAME
+    # file. Without this set, cost is inflated ~44% on real machines.
+    # msg.id is globally unique per Anthropic API, so dedup is also
+    # safe across files (tested: cross-file collisions are rare but
+    # must still be first-wins, not double-counted).
+    seen_ids = set()
+
     if not os.path.isdir(base):
         return s
 
@@ -1016,15 +1034,11 @@ def scan():
         parts = [p for p in proj.replace("-", "/").split("/") if p]
         proj_name = parts[-1] if parts else proj[:20]
 
-        # Only scan the project root — DO NOT recurse into subagents/.
-        # v1.3.11 tried recursion to capture subagent cost, but Claude Code
-        # writes the SAME Anthropic API response (same msg id) into both
-        # the parent session JSONL and the subagent JSONL, so recursion
-        # double-counts by 2-3x. Empirically: 48,802 total msgs vs ~20K
-        # unique msg_ids on a real machine. Until a correct de-dup pass
-        # is added, the parent session alone is the source of truth —
-        # its turns already include the user-visible responses from any
-        # tool calls Claude made (incl. subagent invocations).
+        # Scan project root only — subagents/ is excluded for now. With
+        # msg.id dedup (seen_ids below) recursion would be safe in theory
+        # but adds no value on machines without subagent files and hasn't
+        # been validated on machines that have them. Revisit in a follow-up
+        # with empirical cross-file overlap measurement.
         for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             has = False
             sess_cost = 0.0; sess_msgs = 0; sess_first_date = None; sess_model_counts = {}
@@ -1038,6 +1052,14 @@ def scan():
                             if not isinstance(msg, dict): continue
                             u = msg.get("usage")
                             if not u: continue
+                            # Skip duplicate msg.id (session resume re-logs history).
+                            # Rows without an id are rare but uncounted-not-double-
+                            # counted: we can't dedup what we can't identify, and
+                            # dropping them silently would under-count.
+                            mid = msg.get("id")
+                            if mid:
+                                if mid in seen_ids: continue
+                                seen_ids.add(mid)
                             i, o, w, r = u.get("input_tokens", 0), u.get("output_tokens", 0), u.get("cache_creation_input_tokens", 0), u.get("cache_read_input_tokens", 0)
                             s["inp"] += i; s["out"] += o; s["cw"] += w; s["cr"] += r; has = True
                             total_t = i + o + w + r

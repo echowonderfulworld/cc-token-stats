@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.claude/
 node_modules/
 web/node_modules/
 dashboard/static/
