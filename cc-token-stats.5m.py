@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.0.4"
+VERSION = "1.3.1.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -113,6 +113,7 @@ STRINGS = {
     "report":      {"en":"View Full Report","zh":"查看完整报告","es":"Ver informe","fr":"Voir le rapport","ja":"レポートを見る"},
     "trend_vs":    {"en":"vs 30d avg","zh":"对比 30 天均值","es":"vs prom. 30d","fr":"vs moy. 30j","ja":"30日平均比"},
     "extra":       {"en":"Extra","zh":"额外用量","es":"Extra","fr":"Extra","ja":"追加"},
+    "check_update_now": {"en":"Check for Updates Now","zh":"立即检查更新","es":"Buscar ahora","fr":"Vérifier maintenant","ja":"今すぐ確認"},
 }
 
 def t(key):
@@ -454,69 +455,145 @@ def check_and_notify(usage):
 # ─── Auto-update (once per day, silent) ──────────────────────────
 
 UPDATE_CHECK_FILE = Path.home() / ".config" / "cc-token-stats" / ".last_update_check"
+UPDATE_LOG_FILE   = Path.home() / ".config" / "cc-token-stats" / ".update.log"
+
+def _log_update(msg):
+    """Append a timestamped line to the update log; rotate if > 50 KB."""
+    try:
+        UPDATE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if UPDATE_LOG_FILE.is_file() and UPDATE_LOG_FILE.stat().st_size > 50_000:
+            UPDATE_LOG_FILE.write_text("")
+        with UPDATE_LOG_FILE.open("a") as f:
+            f.write(f"{datetime.now().isoformat(timespec='seconds')} v{VERSION} {msg}\n")
+    except Exception:
+        pass
+
+def _http_get(url, timeout=15):
+    """Open URL with 2-tier proxy fallback — same policy as fetch_usage().
+    SwiftBar strips env vars and _scproxy may not work in its sandbox, so
+    we retry with an explicit ProxyHandler reading scutil --proxy.
+    Caller receives bytes (already read). Raises on failure."""
+    import urllib.request
+    req = urllib.request.Request(url)
+    first_err = None
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except Exception as e:
+        first_err = e
+    proxy = _detect_macos_proxy()
+    if not proxy:
+        raise first_err
+    handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+    opener = urllib.request.build_opener(handler)
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read()
 
 def auto_update():
-    """Check for updates once per day. Downloads new version silently."""
+    """Check for updates once per day. Downloads new version silently.
+    Every failure logs to ~/.config/cc-token-stats/.update.log so users can
+    diagnose why their plugin isn't updating (previous versions silently
+    swallowed all errors)."""
     if not CFG.get("auto_update", True):
         return
     try:
-        # Check at most once per day
         if UPDATE_CHECK_FILE.is_file():
             last = float(UPDATE_CHECK_FILE.read_text().strip())
             if datetime.now().timestamp() - last < 86400:  # 24h
                 return
-    except Exception: pass
+    except Exception:
+        pass
 
     try:
-        import urllib.request, hashlib
-        # Fetch remote version line
-        req = urllib.request.Request(f"{REPO_URL}/cc-token-stats.5m.py",
-                                     headers={"Range": "bytes=0-500"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            head = resp.read(500).decode("utf-8", errors="ignore")
-        # Parse VERSION from remote
+        import hashlib
+        # 1) Read remote VERSION line (full file, but we only parse the header)
+        head_bytes = _http_get(f"{REPO_URL}/cc-token-stats.5m.py", timeout=15)
+        head = head_bytes[:500].decode("utf-8", errors="ignore")
+        remote_ver = None
         for line in head.splitlines():
             if line.startswith("VERSION"):
-                remote_ver = line.split('"')[1]
-                if remote_ver != VERSION:
-                    # Resolve plugin path
-                    plugin_path = None
-                    try:
-                        plugin_dir = subprocess.run(
-                            ["defaults", "read", "com.ameba.SwiftBar", "PluginDirectory"],
-                            capture_output=True, text=True, timeout=3
-                        ).stdout.strip()
-                        if plugin_dir:
-                            plugin_path = os.path.join(plugin_dir, "cc-token-stats.5m.py")
-                    except Exception: pass
-                    if not plugin_path:
-                        plugin_path = os.path.join(
-                            str(Path.home()), "Library", "Application Support",
-                            "SwiftBar", "plugins", "cc-token-stats.5m.py")
-
-                    # Download to temp file
-                    tmp_path = plugin_path + ".tmp"
-                    urllib.request.urlretrieve(f"{REPO_URL}/cc-token-stats.5m.py", tmp_path)
-
-                    # Verify SHA256 checksum
-                    with open(tmp_path, "rb") as f:
-                        actual_hash = hashlib.sha256(f.read()).hexdigest()
-                    with urllib.request.urlopen(f"{REPO_URL}/checksum.sha256", timeout=5) as resp:
-                        expected_hash = resp.read().decode().strip().split()[0]
-                    if actual_hash != expected_hash:
-                        try: os.remove(tmp_path)
-                        except Exception: pass
-                        return  # checksum mismatch — don't record, retry next cycle
-
-                    os.chmod(tmp_path, 0o755)
-                    os.rename(tmp_path, plugin_path)  # atomic on same filesystem
+                try:
+                    remote_ver = line.split('"')[1]
+                except Exception:
+                    pass
                 break
+        if not remote_ver:
+            _log_update("check failed: could not parse remote VERSION line")
+            return
 
-        # Record check time — only reached on success or same-version
+        def _ver_tuple(v):
+            try:
+                return tuple(int(x) for x in v.split("."))
+            except Exception:
+                return ()
+
+        local_t, remote_t = _ver_tuple(VERSION), _ver_tuple(remote_ver)
+        if remote_t <= local_t:
+            if remote_ver == VERSION:
+                _log_update(f"check OK: up-to-date ({VERSION})")
+            else:
+                # Protect against accidental downgrade (e.g. bad push to main)
+                _log_update(
+                    f"check OK: local {VERSION} >= remote {remote_ver}, no downgrade"
+                )
+            UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+            UPDATE_CHECK_FILE.write_text(str(datetime.now().timestamp()))
+            UPDATE_CHECK_FILE.chmod(0o600)
+            return
+
+        # 2) Resolve plugin path (SwiftBar config → default fallback)
+        plugin_path = None
+        try:
+            out = subprocess.run(
+                ["defaults", "read", "com.ameba.SwiftBar", "PluginDirectory"],
+                capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+            if out:
+                plugin_path = os.path.join(out, "cc-token-stats.5m.py")
+        except Exception:
+            pass
+        if not plugin_path:
+            plugin_path = os.path.join(
+                str(Path.home()), "Library", "Application Support",
+                "SwiftBar", "plugins", "cc-token-stats.5m.py")
+
+        # 3) We already have the full file bytes from step 1 — reuse them
+        #    (avoids a second download + ensures checksum matches what we parsed)
+        data = head_bytes
+        tmp_path = plugin_path + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+
+        # 4) Verify SHA256 checksum
+        actual_hash = hashlib.sha256(data).hexdigest()
+        try:
+            expected_hash = _http_get(f"{REPO_URL}/checksum.sha256", timeout=10) \
+                .decode().strip().split()[0]
+        except Exception as e:
+            try: os.remove(tmp_path)
+            except Exception: pass
+            _log_update(f"checksum fetch failed: {type(e).__name__}: {e}")
+            return
+
+        if actual_hash != expected_hash:
+            try: os.remove(tmp_path)
+            except Exception: pass
+            _log_update(
+                f"checksum mismatch for remote v{remote_ver}: "
+                f"expected={expected_hash[:12]} actual={actual_hash[:12]}"
+            )
+            return  # don't record check_time — retry next cycle
+
+        # 5) Atomic replace
+        os.chmod(tmp_path, 0o755)
+        os.rename(tmp_path, plugin_path)
+        _log_update(f"updated {VERSION} → {remote_ver}")
+
         UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
         UPDATE_CHECK_FILE.write_text(str(datetime.now().timestamp()))
         UPDATE_CHECK_FILE.chmod(0o600)
-    except Exception: pass
+    except Exception as e:
+        _log_update(f"error: {type(e).__name__}: {e}")
 
 # ─── Usage API (official rate limits) ────────────────────────────
 
@@ -2302,6 +2379,9 @@ PYEOF
   dashboard)
     python3 {_escaped_plugin} --dashboard
     ;;
+  force-update)
+    python3 {_escaped_plugin} --force-update
+    ;;
 esac
 """)
         os.chmod(helper, 0o755)
@@ -2330,6 +2410,10 @@ esac
     update_label = f"{update_icon} {t('auto_upd')}"
     print(f"--{update_label} | bash={helper} param1=autoupdate terminal=false refresh=true")
 
+    # Manual "check for updates now" — bypasses the 24h lock
+    check_now_label = t("check_update_now")
+    print(f"--{check_now_label} | bash={helper} param1=force-update terminal=false refresh=true")
+
     # Subscription plan selector
     cur_sub = CFG.get("subscription", 0)
     plans = [("Pro", 20), ("Max 5x", 100), ("Max 20x", 200), ("Team", 30), ("API / None", 0)]
@@ -2354,6 +2438,30 @@ if __name__ == "__main__":
             subprocess.run(["open", path])
         except Exception as e:
             print(f"Dashboard error: {e}", file=sys.stderr)
+        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "--force-update":
+        # Manual "check for update now" — bypass the 24h lock + show feedback
+        try:
+            if UPDATE_CHECK_FILE.is_file():
+                UPDATE_CHECK_FILE.unlink()
+        except Exception: pass
+        # Temporarily force auto_update on (user asked explicitly — overrides the toggle)
+        CFG["auto_update"] = True
+        auto_update()
+        # Surface the most recent log line so the caller can display it
+        try:
+            if UPDATE_LOG_FILE.is_file():
+                lines = UPDATE_LOG_FILE.read_text().strip().splitlines()
+                if lines:
+                    # ensure_ascii=False so UTF-8 chars (e.g. →) aren't \uXXXX-escaped
+                    # (AppleScript literals don't understand \u escapes)
+                    body = json.dumps(lines[-1], ensure_ascii=False)
+                    subprocess.run([
+                        "osascript", "-e",
+                        f'display notification {body} '
+                        f'with title "cc-token-status" subtitle "Update check"'
+                    ], timeout=5)
+        except Exception: pass
         sys.exit(0)
     try:
         main()
