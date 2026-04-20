@@ -40,7 +40,10 @@ fi
 # 4. SwiftBar
 echo ""
 if [ -d "/Applications/SwiftBar.app" ]; then
-    REMAINING=$(ls "$PLUGIN_DIR"/*.py 2>/dev/null | wc -l | tr -d ' ')
+    # Guard against `set -e -o pipefail` killing the script when the glob
+    # expands to nothing (no .py files left, or $PLUGIN_DIR gone entirely).
+    # Wrap `ls` in a subshell with `|| true` so the pipe never fails.
+    REMAINING=$({ ls "$PLUGIN_DIR"/*.py 2>/dev/null || true; } | wc -l | tr -d ' ')
     if [ "$REMAINING" = "0" ]; then
         echo "SwiftBar has no other plugins installed."
     else

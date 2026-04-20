@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.9"
+VERSION = "1.3.10"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -84,6 +84,7 @@ STRINGS = {
     "subscription":{"en":"Subscription","zh":"订阅方案","es":"Suscripción","fr":"Abonnement","ja":"サブスクリプション"},
     "limit_warn":  {"en":"Approaching usage limit","zh":"用量接近上限","es":"Acercándose al límite","fr":"Proche de la limite","ja":"上限に近づいています"},
     "limit_crit":  {"en":"Rate limit imminent!","zh":"即将限速！","es":"¡Límite inminente!","fr":"Limite imminente !","ja":"制限間近！"},
+    "limit_blocked":{"en":"Limit reached — requests blocked until reset","zh":"已达上限 — 请求被阻断，等待重置","es":"Límite alcanzado — solicitudes bloqueadas hasta reinicio","fr":"Limite atteinte — requêtes bloquées jusqu'à réinitialisation","ja":"上限到達 — リセットまでリクエストブロック"},
     "am":          {"en":"AM","zh":"早上","es":"Mañana","fr":"Matin","ja":"午前"},
     "pm":          {"en":"PM","zh":"下午","es":"Tarde","fr":"Après-midi","ja":"午後"},
     "eve":         {"en":"Eve","zh":"晚上","es":"Noche","fr":"Soir","ja":"夜"},
@@ -102,6 +103,7 @@ STRINGS = {
     "level":       {"en":"Level","zh":"等级","es":"Nivel","fr":"Niveau","ja":"レベル"},
     "next_level":  {"en":"Next","zh":"下一级","es":"Siguiente","fr":"Suivant","ja":"次"},
     "no_token":    {"en":"⚠ No OAuth token — log in to Claude Code","zh":"⚠ 未找到 OAuth token — 请登录 Claude Code","es":"⚠ Sin token OAuth — inicie sesión en Claude Code","fr":"⚠ Pas de token OAuth — connectez-vous à Claude Code","ja":"⚠ OAuthトークンなし — Claude Codeにログイン"},
+    "auth_error":  {"en":"⚠ OAuth token rejected — log in again","zh":"⚠ OAuth token 已失效 — 请重新登录","es":"⚠ Token OAuth rechazado — inicie sesión de nuevo","fr":"⚠ Token OAuth refusé — reconnectez-vous","ja":"⚠ OAuthトークン拒否 — 再ログインしてください"},
     "api_error":   {"en":"⚠ Cannot reach Anthropic API","zh":"⚠ 无法连接 Anthropic API","es":"⚠ No se puede conectar a la API","fr":"⚠ API Anthropic inaccessible","ja":"⚠ Anthropic APIに接続できません"},
     "first_use":   {"en":"Start a Claude Code session to see stats","zh":"启动 Claude Code 会话以查看统计","es":"Inicie una sesión de Claude Code","fr":"Démarrez une session Claude Code","ja":"Claude Codeセッションを開始してください"},
     "dim_usage":   {"en":"Usage","zh":"使用深度","es":"Uso","fr":"Utilisation","ja":"使用量"},
@@ -424,7 +426,9 @@ def check_and_notify(usage):
             state = json.loads(NOTIFY_STATE_FILE.read_text())
     except Exception: pass
 
-    thresholds = [80, 95]
+    # Three-tier alerting — previously 100% shared the "imminent!" copy with
+    # 95%, which reads wrong when the user is actually already blocked.
+    thresholds = [80, 95, 100]
     checks = [
         ("Session", "five_hour"),
         ("Weekly", "seven_day"),
@@ -444,7 +448,10 @@ def check_and_notify(usage):
             state_key = f"{key}_{thresh}_{reset}"
             current_keys.add(state_key)
             if util >= thresh and state_key not in state:
-                if thresh >= 95:
+                if thresh >= 100:
+                    # Already blocked — different icon + "limit reached" copy
+                    _notify(f"🛑 {name} {util:.0f}%", t("limit_blocked"))
+                elif thresh >= 95:
                     _notify(f"⛔ {name} {util:.0f}%", t("limit_crit"))
                 else:
                     _notify(f"⚠️ {name} {util:.0f}%", t("limit_warn"))
@@ -749,6 +756,11 @@ def fetch_usage():
                     # Pass Retry-After hint if server provides one
                     retry_after = e.headers.get("Retry-After") if e.headers else None
                     return None, f"rate_limit:{retry_after}" if retry_after else "rate_limit"
+                if e.code in (401, 403):
+                    # Token was rejected — retrying with proxy won't help,
+                    # and the user-visible hint should be "log in again"
+                    # (was grouped into the generic "api_error" before).
+                    return None, "auth_error"
                 if attempt == 0:
                     continue
             except Exception:
@@ -793,13 +805,20 @@ def _read_synced_usage():
         return None
 
 def _write_synced_usage(data):
-    """Share fresh usage data for other machines via sync directory."""
+    """Share fresh usage data for other machines via sync directory.
+    Atomic write (tmp + os.replace) so a concurrent reader on another
+    Mac never sees a half-written JSON — previously a naive write_text
+    could race with a peer's read and the peer's json.loads would throw
+    (swallowed → fallback to None, so not user-visible, but wasted
+    exception cycles and masked real sync issues)."""
     if not SYNC_DIR:
         return
     try:
         shared = os.path.join(SYNC_DIR, "shared_usage.json")
         os.makedirs(os.path.dirname(shared), exist_ok=True)
-        Path(shared).write_text(json.dumps(data))
+        tmp = shared + ".tmp"
+        Path(tmp).write_text(json.dumps(data))
+        os.replace(tmp, shared)
     except Exception:
         pass
 
@@ -951,7 +970,13 @@ def scan():
     if cached is not None:
         return cached
 
-    now_dt = datetime.now()
+    # Use tz-aware datetimes so timedelta subtraction is DST-safe.
+    # Naive datetimes silently skip/repeat an hour on DST transition days
+    # (spring-forward / fall-back), causing rolling-window totals near the
+    # transition to be off by up to 1 hour for US/EU users. China (author's
+    # tz) has no DST so the original naive code worked, but anyone observing
+    # DST had a 2×/yr off-by-one-hour drift.
+    now_dt = datetime.now().astimezone()
     cutoff_5h = now_dt - timedelta(hours=5)
     cutoff_7d = now_dt - timedelta(days=7)
 
@@ -1030,13 +1055,11 @@ def scan():
                             # come from the same astimezone()-converted dt.
                             ts_str = d.get("timestamp", "")
                             msg_date = None
-                            local_dt = None
-                            msg_dt_naive = None
+                            local_dt = None  # tz-aware; also used directly for rolling-window compare
                             if ts_str:
                                 try:
                                     local_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone()
                                     msg_date = local_dt.strftime("%Y-%m-%d")
-                                    msg_dt_naive = local_dt.replace(tzinfo=None)
                                 except Exception:
                                     pass
 
@@ -1074,12 +1097,12 @@ def scan():
                                     local_weekday = local_dt.weekday()  # 0=Mon, 6=Sun
                                     s["daily_hourly"][local_weekday][local_h] += 1
 
-                            # Rolling windows (5h / 7d) — cutoffs are naive-local
-                            if msg_dt_naive is not None:
-                                if msg_dt_naive >= cutoff_5h:
+                            # Rolling windows (5h / 7d) — both sides tz-aware for DST safety
+                            if local_dt is not None:
+                                if local_dt >= cutoff_5h:
                                     s["window_5h"]["tokens"] += total_t; s["window_5h"]["cost"] += mc
                                     s["window_5h"]["msgs"] += 1; s["window_5h"]["out"] += o
-                                if msg_dt_naive >= cutoff_7d:
+                                if local_dt >= cutoff_7d:
                                     s["window_7d"]["tokens"] += total_t; s["window_7d"]["cost"] += mc
                                     s["window_7d"]["msgs"] += 1; s["window_7d"]["out"] += o
 
@@ -1951,7 +1974,18 @@ $('badgesPanel').insertAdjacentHTML('beforeend',html);
 
 window.addEventListener('resize',()=>{document.querySelectorAll('.ch,.cht').forEach(el=>{const c=echarts.getInstanceByDom(el);if(c)c.resize();});});
 </script></body></html>"""
-    return template.replace("__DATA__", payload)
+    # Make payload safe to embed in <script>:
+    #  - '</' can close the enclosing <script> block if a string value
+    #    happens to contain it (e.g. a project name with '</' or a
+    #    future field carrying HTML). Escape it as '<\/' — still legal
+    #    JSON, browsers ignore the backslash when re-parsing.
+    #  - U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR are valid
+    #    in JSON but were illegal raw inside JS string literals until
+    #    ES2019; some browsers/contexts still choke. Escape defensively.
+    payload_safe = payload.replace("</", "<\\/") \
+                          .replace("\u2028", "\\u2028") \
+                          .replace("\u2029", "\\u2029")
+    return template.replace("__DATA__", payload_safe)
 
 # ─── Render ──────────────────────────────────────────────────────
 
@@ -2306,7 +2340,16 @@ def main():
     # ═══ 1b. USAGE STATUS HINTS (only when NO data at all) ═══
     HINT = "color=#888888 size=11"
     if not usage and usage_err:
-        hint = t("no_token") if usage_err == "no_token" else t("api_error")
+        # Three distinct hints: no token in keychain, token rejected by
+        # server (expired/revoked), or general API unreachable. Previously
+        # 'auth_error' collapsed into 'api_error' so users saw "Cannot
+        # reach API" when the actual fix is to re-login.
+        if usage_err == "no_token":
+            hint = t("no_token")
+        elif usage_err == "auth_error":
+            hint = t("auth_error")
+        else:
+            hint = t("api_error")
         print(f"{hint} | {HINT}")
 
     # ═══ 1c. FIRST-USE GUIDE ═══
