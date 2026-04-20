@@ -71,15 +71,36 @@ for old in "$PLUGIN_DIR"/ccpeek* "$PLUGIN_DIR"/cc-pulse*; do
     [ -f "$old" ] && rm -f "$old" && echo "✓ Removed: $(basename "$old")"
 done
 
-# ─── 5. Download plugin (atomic: tmp + mv) ───
+# ─── 5. Download plugin (atomic: tmp + mv, SHA256-verified) ───
 # Non-atomic 'curl -o target' leaves a half-written file on network failure,
 # which SwiftBar will still try to execute (→ visible Python syntax errors
 # in the menu bar). Download to a hidden tmp in the same dir, then rename.
 # The tmp name lacks the '.5m.' refresh pattern so SwiftBar ignores it.
+# SHA256 verification matches auto_update()'s integrity check so first
+# install and subsequent updates trust the same source of truth.
 echo "Downloading latest plugin..."
 TMP_PLUGIN="$PLUGIN_DIR/.cc-token-stats.download.$$"
-trap 'rm -f "$TMP_PLUGIN"' EXIT
+TMP_SUM="$PLUGIN_DIR/.cc-token-stats.sum.$$"
+trap 'rm -f "$TMP_PLUGIN" "$TMP_SUM"' EXIT
 curl -fsSL "${REPO}/${PLUGIN_NAME}?v=${VERSION}" -o "$TMP_PLUGIN"
+
+# Verify SHA256 (best-effort: skip if checksum file unreachable, which
+# can happen on older versions or transient network; the curl already
+# used HTTPS so we're not regressing on security, just adding a layer).
+if curl -fsSL "${REPO}/checksum.sha256?v=${VERSION}" -o "$TMP_SUM" 2>/dev/null; then
+    EXPECTED=$(awk '{print $1}' "$TMP_SUM")
+    ACTUAL=$(shasum -a 256 "$TMP_PLUGIN" | awk '{print $1}')
+    if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
+        echo "✗ Checksum mismatch!"
+        echo "  expected: $EXPECTED"
+        echo "  got:      $ACTUAL"
+        echo "  Refusing to install. File left at $TMP_PLUGIN for inspection."
+        trap - EXIT
+        exit 1
+    fi
+    echo "✓ SHA256 verified"
+fi
+
 chmod +x "$TMP_PLUGIN"
 mv "$TMP_PLUGIN" "$PLUGIN_DIR/$PLUGIN_NAME"
 echo "✓ Plugin installed"
