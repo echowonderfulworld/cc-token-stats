@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.11"
+VERSION = "1.3.12"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -115,7 +115,7 @@ STRINGS = {
     "report":      {"en":"View Full Report","zh":"查看完整报告","es":"Ver informe","fr":"Voir le rapport","ja":"レポートを見る"},
     "trend_vs":    {"en":"vs 30d avg","zh":"对比 30 天均值","es":"vs prom. 30d","fr":"vs moy. 30j","ja":"30日平均比"},
     "extra":       {"en":"Extra","zh":"额外用量","es":"Extra","fr":"Extra","ja":"追加"},
-    "check_update_now": {"en":"Check for Updates Now","zh":"立即检查更新","es":"Buscar ahora","fr":"Vérifier maintenant","ja":"今すぐ確認"},
+    "check_update_now": {"en":"Manual Update","zh":"手动更新","es":"Actualización manual","fr":"Mise à jour manuelle","ja":"手動更新"},
 }
 
 def t(key):
@@ -241,8 +241,7 @@ def calc_user_level():
     # 1. Usage maturity (20pts): median session length + density
     _sessions = []
     _dates = set()
-    # Recursive glob — subagent sessions live under projects/*/subagents/**
-    for jf in _g.glob(os.path.join(_cd, "projects/*/**/*.jsonl"), recursive=True):
+    for jf in _g.glob(os.path.join(_cd, "projects/*/*.jsonl")):
         cnt = 0
         try:
             with open(jf) as f:
@@ -359,7 +358,7 @@ def calc_user_level():
     _ps = {}
     for pd in _g.glob(os.path.join(_pdir, "*")):
         if os.path.isdir(pd):
-            _ps[os.path.basename(pd)] = len(_g.glob(os.path.join(pd, "**/*.jsonl"), recursive=True))
+            _ps[os.path.basename(pd)] = len(_g.glob(os.path.join(pd, "*.jsonl")))
     _sp = sum(1 for c in _ps.values() if c >= 5)
     s5 += 10 if _sp >= 8 else 7 if _sp >= 5 else 4 if _sp >= 3 else 2 if _sp >= 1 else 0
     # worktree detection — check every candidate project dir, not just
@@ -909,24 +908,20 @@ def _best_cached(now_ts):
 # ─── Data ────────────────────────────────────────────────────────
 
 def _file_fingerprints(base):
-    """Collect {path: mtime} for all JSONL files under base.
-    Recursive: Claude Code writes sub-agent sessions to
-    <project>/subagents/agent-*/*.jsonl — those carry real token
-    consumption too and were silently excluded until v1.3.11 when
-    the glob was flattened to *.jsonl only at the project root.
-    Without the mtime here, changes inside subagents/ wouldn't
-    invalidate the scan cache."""
+    """Collect {path: mtime} for all JSONL files at the project root.
+    Mirrors scan()'s glob (NOT recursive) — see scan() for why
+    subagents/ is deliberately excluded to avoid double-counting."""
     fps = {}
     if not os.path.isdir(base):
         return fps
     for pd in glob.glob(os.path.join(base, "*")):
         if not os.path.isdir(pd): continue
-        for jf in glob.glob(os.path.join(pd, "**/*.jsonl"), recursive=True):
+        for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             try: fps[jf] = os.path.getmtime(jf)
             except Exception: pass
     return fps
 
-SCAN_CACHE_SCHEMA = "subagent-v1"  # bump when scan-result semantics change
+SCAN_CACHE_SCHEMA = "main-session-only-v1"  # bump when scan-result semantics change
 
 def _load_scan_cache(base, today_str):
     """Return cached scan result if all files unchanged and same day.
@@ -1021,13 +1016,16 @@ def scan():
         parts = [p for p in proj.replace("-", "/").split("/") if p]
         proj_name = parts[-1] if parts else proj[:20]
 
-        # Recursive so <project>/subagents/**/*.jsonl are counted. Those
-        # carry real token consumption from sub-agent invocations; until
-        # v1.3.11 they were silently excluded (~29K msgs / ~$1.6K missed
-        # cost on the author's machine). proj_name is still derived from
-        # the top-level project dir, so subagent sessions roll up to the
-        # same project the user thinks they're in.
-        for jf in glob.glob(os.path.join(pd, "**/*.jsonl"), recursive=True):
+        # Only scan the project root — DO NOT recurse into subagents/.
+        # v1.3.11 tried recursion to capture subagent cost, but Claude Code
+        # writes the SAME Anthropic API response (same msg id) into both
+        # the parent session JSONL and the subagent JSONL, so recursion
+        # double-counts by 2-3x. Empirically: 48,802 total msgs vs ~20K
+        # unique msg_ids on a real machine. Until a correct de-dup pass
+        # is added, the parent session alone is the source of truth —
+        # its turns already include the user-visible responses from any
+        # tool calls Claude made (incl. subagent invocations).
+        for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             has = False
             sess_cost = 0.0; sess_msgs = 0; sess_first_date = None; sess_model_counts = {}
             try:
