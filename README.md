@@ -101,8 +101,8 @@ Scored across 5 dimensions (100 points total):
 │  SwiftBar (5-min refresh)                                   │
 │   ↓                                                         │
 │  cc-token-stats.5m.py                                       │
-│   ├─ scan()        → parse ~/.claude/projects/**/*.jsonl    │
-│   │                  (incremental: mtime fingerprint cache)  │
+│   ├─ scan()        → parse ~/.claude/projects/*/*.jsonl     │
+│   │                  (msg.id dedup + mtime fingerprint cache)│
 │   ├─ get_usage()   → Anthropic OAuth API (4-min cache)      │
 │   │                  ↳ macOS Keychain → OAuth token          │
 │   ├─ save_sync()   → write to iCloud Drive                  │
@@ -111,7 +111,7 @@ Scored across 5 dimensions (100 points total):
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **Token & cost** — scans Claude Code JSONL session logs with incremental caching (only re-parses changed files), calculates API-equivalent cost with official Anthropic pricing
+- **Token & cost** — scans Claude Code JSONL session logs with incremental caching (only re-parses changed files), deduplicates by Anthropic `msg.id` so session resume/continue rewrites aren't double-counted, calculates API-equivalent cost with official Anthropic pricing
 - **Plan limits** — reads OAuth token from macOS Keychain, queries `api.anthropic.com/api/oauth/usage` with smart caching (4-min fresh + 2-hour stale fallback, HTTP 429 graceful degradation)
 - **Auto-update** — daily GitHub check with SHA256 verification, atomic tmp+rename, system proxy fallback, downgrade-protected; failures logged to `~/.config/cc-token-stats/.update.log` for diagnosis
 - **Multi-machine sync** — writes stats to iCloud Drive, reads other machines' data automatically
