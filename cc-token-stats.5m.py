@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.4.5"
+VERSION = "1.4.6"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -869,6 +869,22 @@ def _read_synced_usage():
     except Exception:
         return None
 
+def _atomic_write_json(path, data, mode=None):
+    """Atomic tmp + os.replace write. Concurrent readers never see a
+    half-written/truncated file — avoids intermittent json.loads failures
+    when force-update (--dashboard) overlaps the main 5-minute refresh."""
+    try:
+        path = Path(path) if not isinstance(path, Path) else path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data))
+        if mode is not None:
+            tmp.chmod(mode)
+        os.replace(str(tmp), str(path))
+    except Exception:
+        pass
+
+
 def _write_synced_usage(data):
     """Share fresh usage data for other machines via sync directory.
     Atomic write (tmp + os.replace) so a concurrent reader on another
@@ -906,11 +922,7 @@ def get_usage():
         synced_age = now_ts - synced.get("_ts", 0)
         if synced_age < 540:
             # Save to local cache so we don't re-read sync dir every run
-            try:
-                USAGE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-                USAGE_CACHE.write_text(json.dumps(synced))
-                USAGE_CACHE.chmod(0o600)
-            except Exception: pass
+            _atomic_write_json(USAGE_CACHE, synced, mode=0o600)
             return synced, None
 
     # Layer 3: check backoff — if in cooldown, use whatever cache we have
@@ -922,11 +934,7 @@ def get_usage():
     data, err = fetch_usage()
     if data:
         data["_ts"] = now_ts
-        try:
-            USAGE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-            USAGE_CACHE.write_text(json.dumps(data))
-            USAGE_CACHE.chmod(0o600)
-        except Exception: pass
+        _atomic_write_json(USAGE_CACHE, data, mode=0o600)
         _write_synced_usage(data)  # share with other machines
         _clear_backoff()
         return data, None
