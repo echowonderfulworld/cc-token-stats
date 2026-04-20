@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -1230,10 +1230,16 @@ def generate_dashboard():
     total_cr = sum(m.get("cr", 0) + m.get("cache_read_tokens", 0) for m in machines)
     total_tokens = total_inp + total_out + total_cw + total_cr
 
-    # Date range across all machines
+    # Date range across all machines — merge every remote's d_min into dmin_all
+    # so span_days / ROI reflect the earliest session across the user's fleet,
+    # not just this machine. The old code only kept the LAST remote's rd
+    # (loop overwrote rd each iteration) and did the merge inside `if usage`,
+    # so offline / no-OAuth sessions skipped the merge entirely.
     dmin_all = local.get("d_min")
     for r in remotes:
         rd = r.get("d_min") or r.get("date_range", {}).get("min")
+        if rd and (not dmin_all or rd < dmin_all):
+            dmin_all = rd
 
     # Daily average based on calendar span
     active_days = len([v for v in daily.values() if v.get("cost", 0) > 0])
@@ -1248,7 +1254,6 @@ def generate_dashboard():
             obj = usage.get(key)
             if obj and obj.get("utilization") is not None:
                 limits[key] = {"util": obj["utilization"], "resets_at": obj.get("resets_at", "")}
-        if rd and (not dmin_all or rd < dmin_all): dmin_all = rd
     roi = {}
     if sub > 0 and dmin_all:
         first = datetime.strptime(dmin_all, "%Y-%m-%d")
