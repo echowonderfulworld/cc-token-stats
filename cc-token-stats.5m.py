@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.3.8"
+VERSION = "1.3.9"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -1119,17 +1119,44 @@ def save_sync(st):
         # Projects: {name: {cost, msgs, tokens}}
         projects = {k: {"cost": round(v["cost"], 2), "msgs": v["msgs"], "tokens": v["tokens"]}
                     for k, v in st.get("projects", {}).items() if v.get("cost", 0) > 0}
-        # Today snapshot
+        # v3: per-day per-model breakdown (dashboard's daily model chart).
+        # Both levels of keys are already str/str; values cost/msgs.
+        daily_models = {date: {m: {"cost": round(v["cost"], 2), "msgs": v["msgs"]}
+                               for m, v in models_d.items()}
+                        for date, models_d in st.get("daily_models", {}).items()}
+        # v3: per-weekday per-hour heatmap. Keys are ints from defaultdict —
+        # must be stringified for JSON.
+        daily_hourly = {str(wd): {str(h): v for h, v in hours_d.items()}
+                        for wd, hours_d in st.get("daily_hourly", {}).items()}
+        # v3: per-day session list (capped at 30/day in scan()).
+        sessions_by_day = {k: list(v) for k, v in st.get("sessions_by_day", {}).items()}
+        # Today snapshot — full token breakdown + per-model, so dashboard
+        # today-panel can aggregate across machines (not just cost/msgs).
         td = st.get("today", {})
-        today = {"cost": round(td.get("cost", 0), 2), "msgs": td.get("msgs", 0),
-                 "tokens": td.get("tokens", 0)}
+        today = {
+            "cost":   round(td.get("cost", 0), 2),
+            "msgs":   td.get("msgs", 0),
+            "tokens": td.get("tokens", 0),
+            "inp":    td.get("inp", 0),
+            "out":    td.get("out", 0),
+            "cw":     td.get("cw", 0),
+            "cr":     td.get("cr", 0),
+            "models": {m: {"msgs": v["msgs"], "cost": round(v["cost"], 2)}
+                       for m, v in td.get("models", {}).items()},
+        }
         with open(os.path.join(d, "token-stats.json"), "w") as f:
             json.dump({"machine": MACHINE, "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "session_count": st["sessions"], "input_tokens": st["inp"], "output_tokens": st["out"],
                 "cache_write_tokens": st["cw"], "cache_read_tokens": st["cr"],
                 "total_cost": round(st["cost"], 2), "date_range": {"min": st["d_min"], "max": st["d_max"]},
                 "model_breakdown": mb, "daily": daily, "hourly": hourly,
-                "projects": projects, "today": today}, f, indent=2)
+                "projects": projects, "today": today,
+                # v3 fields — previously omitted, making remote heatmaps
+                # and per-day-per-model charts look local-only
+                "daily_models": daily_models,
+                "daily_hourly": daily_hourly,
+                "sessions_by_day": sessions_by_day,
+            }, f, indent=2)
     except Exception: pass
 
 def recalc_remote_cost(data):
@@ -1245,12 +1272,22 @@ def generate_dashboard():
     tc = sum(m.get("cost", 0) for m in machines)
     ts = sum(m.get("sessions", 0) for m in machines)
 
-    # Merge today across all machines
-    today = dict(local.get("today", {}))
-    for r in remotes:
-        rt = r.get("today", {})
-        today["cost"] = today.get("cost", 0) + rt.get("cost", 0)
-        today["msgs"] = today.get("msgs", 0) + rt.get("msgs", 0)
+    # Merge today across all machines — all numeric fields + per-model.
+    # Previously this only merged cost+msgs, dropping tokens/inp/out/cw/cr
+    # from every remote machine. Now that save_sync writes the full today
+    # snapshot (since 1.3.9), aggregate it properly so the today panel
+    # in dashboard/menu reflects fleet totals.
+    today = {"cost": 0.0, "msgs": 0, "tokens": 0,
+             "inp": 0, "out": 0, "cw": 0, "cr": 0, "models": {}}
+    for _m in machines:
+        _mt = _m.get("today", {})
+        for _k in ("cost", "msgs", "tokens", "inp", "out", "cw", "cr"):
+            today[_k] = today.get(_k, 0) + _mt.get(_k, 0)
+        for _model, _d in _mt.get("models", {}).items():
+            if _model not in today["models"]:
+                today["models"][_model] = {"msgs": 0, "cost": 0.0}
+            today["models"][_model]["msgs"] += _d.get("msgs", 0)
+            today["models"][_model]["cost"] += _d.get("cost", 0)
 
     # Merge daily across all machines
     daily = {}
