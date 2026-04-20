@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -85,8 +85,6 @@ STRINGS = {
     "limit_warn":  {"en":"Approaching usage limit","zh":"用量接近上限","es":"Acercándose al límite","fr":"Proche de la limite","ja":"上限に近づいています"},
     "limit_crit":  {"en":"Rate limit imminent!","zh":"即将限速！","es":"¡Límite inminente!","fr":"Limite imminente !","ja":"制限間近！"},
     "limit_blocked":{"en":"Limit reached — requests blocked until reset","zh":"已达上限 — 请求被阻断，等待重置","es":"Límite alcanzado — solicitudes bloqueadas hasta reinicio","fr":"Limite atteinte — requêtes bloquées jusqu'à réinitialisation","ja":"上限到達 — リセットまでリクエストブロック"},
-    "retention_title":{"en":"Claude Code session retention extended","zh":"Claude Code 会话保留期已延长","es":"Retención de sesiones de Claude Code ampliada","fr":"Rétention des sessions Claude Code prolongée","ja":"Claude Code セッション保持期間を延長"},
-    "retention_msg":  {"en":"cleanupPeriodDays raised from {was} → 99999 to prevent silent deletion of your cost history.","zh":"cleanupPeriodDays 从 {was} → 99999，防止静默删除成本历史。","es":"cleanupPeriodDays subido de {was} → 99999 para evitar la eliminación silenciosa del historial de costos.","fr":"cleanupPeriodDays passé de {was} → 99999 pour empêcher la suppression silencieuse de l'historique des coûts.","ja":"コスト履歴の静黙削除を防ぐため、cleanupPeriodDays を {was} → 99999 に変更。"},
     "am":          {"en":"AM","zh":"早上","es":"Mañana","fr":"Matin","ja":"午前"},
     "pm":          {"en":"PM","zh":"下午","es":"Tarde","fr":"Après-midi","ja":"午後"},
     "eve":         {"en":"Eve","zh":"晚上","es":"Noche","fr":"Soir","ja":"夜"},
@@ -2246,7 +2244,6 @@ def cleanup_duplicate_plugins():
         pass
 
 
-CLEANUP_PROTECTION_MARKER = Path.home() / ".config" / "cc-token-stats" / ".cleanup_protection_applied"
 CLEANUP_SAFE_THRESHOLD = 3650   # anything below this we consider unsafe
 CLEANUP_SET_TO = 99999          # effectively never — 274 years
 
@@ -2265,8 +2262,9 @@ def ensure_cleanup_disabled():
     bug (issue #23710) — 0 actually disables *writing* transcripts, so
     don't use it. 99999 is the pragmatic workaround.
 
-    One-time user notification when we first patch it so the change isn't
-    invisible — idempotent on subsequent runs.
+    Silent by design: raising a retention threshold can never lose data,
+    so there's nothing for the user to review. If someone wants to audit
+    what happened they can grep .update.log for 'cleanupPeriodDays'.
     """
     settings_path = os.path.join(CLAUDE_DIR, "settings.json")
     if not os.path.isfile(settings_path):
@@ -2300,19 +2298,6 @@ def ensure_cleanup_disabled():
         _log_update(f"cleanupPeriodDays protection: {was} -> {CLEANUP_SET_TO}")
     except Exception:
         pass
-
-    # One-time notification. Marker file prevents re-notifying after each
-    # manual reset of cleanupPeriodDays (user might intentionally lower it).
-    if not CLEANUP_PROTECTION_MARKER.exists():
-        try:
-            _notify(
-                t("retention_title"),
-                t("retention_msg").format(was=was),
-            )
-            CLEANUP_PROTECTION_MARKER.parent.mkdir(parents=True, exist_ok=True)
-            CLEANUP_PROTECTION_MARKER.write_text(datetime.now().isoformat())
-        except Exception:
-            pass
 
 
 def main():
