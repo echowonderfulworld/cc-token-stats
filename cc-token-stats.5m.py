@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.4.6"
+VERSION = "1.4.7"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -104,6 +104,7 @@ STRINGS = {
     "next_level":  {"en":"Next","zh":"下一级","es":"Siguiente","fr":"Suivant","ja":"次"},
     "no_token":    {"en":"⚠ No OAuth token — log in to Claude Code","zh":"⚠ 未找到 OAuth token — 请登录 Claude Code","es":"⚠ Sin token OAuth — inicie sesión en Claude Code","fr":"⚠ Pas de token OAuth — connectez-vous à Claude Code","ja":"⚠ OAuthトークンなし — Claude Codeにログイン"},
     "auth_error":  {"en":"⚠ OAuth token rejected — log in again","zh":"⚠ OAuth token 已失效 — 请重新登录","es":"⚠ Token OAuth rechazado — inicie sesión de nuevo","fr":"⚠ Token OAuth refusé — reconnectez-vous","ja":"⚠ OAuthトークン拒否 — 再ログインしてください"},
+    "token_expired":{"en":"⏳ Token expired — needs Claude Code to wake up and auto-refresh","zh":"⏳ Token 过期 — 需等 Claude Code 唤醒自动刷新","es":"⏳ Token caducado — espera a que Claude Code se active y se actualice","fr":"⏳ Token expiré — attendez que Claude Code s'active et se rafraîchisse","ja":"⏳ Token期限切れ — Claude Codeの起動で自動更新を待機"},
     "api_error":   {"en":"⚠ Cannot reach Anthropic API","zh":"⚠ 无法连接 Anthropic API","es":"⚠ No se puede conectar a la API","fr":"⚠ API Anthropic inaccessible","ja":"⚠ Anthropic APIに接続できません"},
     "first_use":   {"en":"Start a Claude Code session to see stats","zh":"启动 Claude Code 会话以查看统计","es":"Inicie una sesión de Claude Code","fr":"Démarrez une session Claude Code","ja":"Claude Codeセッションを開始してください"},
     "dim_usage":   {"en":"Usage","zh":"使用深度","es":"Uso","fr":"Utilisation","ja":"使用量"},
@@ -763,7 +764,11 @@ def _detect_macos_proxy():
     return None
 
 def get_oauth_token():
-    """Read Claude Code OAuth token from macOS Keychain."""
+    """Read Claude Code OAuth token from macOS Keychain.
+
+    Returns (accessToken, subscriptionType, rateLimitTier, expiresAt_ms).
+    expiresAt_ms is the Keychain-stored token expiry (epoch ms), or None if absent.
+    """
     try:
         out = subprocess.run(
             ["security", "find-generic-password", "-s", "Claude Code-credentials", "-g"],
@@ -777,17 +782,24 @@ def get_oauth_token():
                     pw = pw[1:-1]
                 creds = json.loads(pw)
                 oauth = creds.get("claudeAiOauth", {})
-                return oauth.get("accessToken"), oauth.get("subscriptionType"), oauth.get("rateLimitTier")
+                return oauth.get("accessToken"), oauth.get("subscriptionType"), oauth.get("rateLimitTier"), oauth.get("expiresAt")
     except Exception:
         pass
-    return None, None, None
+    return None, None, None, None
 
 def fetch_usage():
     """Fetch official plan usage from Anthropic API. Returns (data, error_hint).
     error_hint is None on success, or a short string describing the failure."""
-    token, sub_type, tier = get_oauth_token()
+    token, sub_type, tier, expires_at = get_oauth_token()
     if not token:
         return None, "no_token"
+    # Short-circuit when the locally cached accessToken is already past its
+    # expiresAt — Claude Code CLI refreshes the token only when *it* runs,
+    # so after idle periods (e.g. overnight) the Keychain copy is stale and
+    # any API call here returns 401. Skip the network round-trip and show
+    # an honest hint instead of the misleading "log in again".
+    if expires_at and int(time.time() * 1000) >= int(expires_at):
+        return None, "token_expired"
     try:
         import urllib.request, urllib.error
         url = "https://api.anthropic.com/api/oauth/usage"
@@ -2532,6 +2544,8 @@ def main():
         # reach API" when the actual fix is to re-login.
         if usage_err == "no_token":
             hint = t("no_token")
+        elif usage_err == "token_expired":
+            hint = t("token_expired")
         elif usage_err == "auth_error":
             hint = t("auth_error")
         else:
