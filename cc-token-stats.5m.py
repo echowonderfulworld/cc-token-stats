@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.4.8"
+VERSION = "1.5.0"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -39,12 +39,12 @@ def load_config():
     if CONFIG_FILE.is_file():
         try:
             with open(CONFIG_FILE) as f: cfg.update(json.load(f))
-        except Exception: pass
+        except (OSError, json.JSONDecodeError, ValueError): pass
     for ek, ck in [("CC_STATS_CLAUDE_DIR","claude_dir"),("CC_STATS_SYNC_REPO","sync_repo"),("CC_STATS_LANG","language")]:
         if os.environ.get(ek): cfg[ck] = os.environ[ek]
     if os.environ.get("CC_STATS_SUBSCRIPTION"):
         try: cfg["subscription"] = float(os.environ["CC_STATS_SUBSCRIPTION"])
-        except Exception: pass
+        except (TypeError, ValueError): pass
     if cfg["language"] == "auto":
         try:
             out = subprocess.check_output(["defaults","read",".GlobalPreferences","AppleLanguages"], stderr=subprocess.DEVNULL, text=True, timeout=3)
@@ -55,7 +55,7 @@ def load_config():
                 cfg["language"] = fl if fl in supported else "en"
             else:
                 cfg["language"] = "en"
-        except Exception: cfg["language"] = "en"
+        except (subprocess.SubprocessError, OSError): cfg["language"] = "en"
     return cfg
 
 CFG = load_config()
@@ -224,7 +224,7 @@ def calc_user_level():
             _lc = json.loads(LEVEL_CACHE_FILE.read_text())
             if _lc.get("date") == today_str and _lc.get("ver") == VERSION:
                 return _lc["score"], _lc["level"], _lc["details"]
-    except Exception: pass
+    except (OSError, json.JSONDecodeError, KeyError): pass
 
     import glob as _g
     _home = os.path.expanduser("~")
@@ -276,7 +276,7 @@ def calc_user_level():
                         # scan() in v1.3.5 but left here until now.
                         try:
                             _dates.add(datetime.fromisoformat(ts.replace("Z","+00:00")).astimezone().strftime("%Y-%m-%d"))
-                        except Exception:
+                        except (TypeError, ValueError):
                             _dates.add(ts[:10])
                     if d.get("type") != "assistant": continue
                     mid = (d.get("message") or {}).get("id")
@@ -284,7 +284,7 @@ def calc_user_level():
                         if mid in _seen_msgs: continue
                         _seen_msgs.add(mid)
                     cnt += 1
-        except Exception: pass
+        except (OSError, json.JSONDecodeError, ValueError): pass
         if cnt > 0: _sessions.append(cnt)
     _sessions.sort()
     # True median (mean of middle two for even counts), not upper-median
@@ -348,7 +348,7 @@ def calc_user_level():
             _svs = _md2.get("mcpServers", {})
             _mc = len(_svs)
             _pm = sum(1 for n in _svs if not any(w in n.lower() for w in _wm))
-        except Exception: pass
+        except (OSError, json.JSONDecodeError, AttributeError): pass
     _em = _pm + (_mc - _pm) * 0.5
     s3 += 14 if _em >= 4 else 10 if _em >= 3 else 7 if _em >= 2 else 4 if _em >= 1 else 0
     _pl = _g.glob(os.path.join(_cd, "plugins/cache/*/"))
@@ -373,7 +373,7 @@ def calc_user_level():
             with open(_sf) as _f: _sd = json.load(_f)
             for v in _sd.get("hooks", {}).values():
                 if isinstance(v, list): _hc += len(v)
-        except Exception: pass
+        except (OSError, json.JSONDecodeError, AttributeError): pass
     _raw = 0
     _nsc = len(_sc2)
     _raw += 14 if _nsc >= 10 else 10 if _nsc >= 5 else 6 if _nsc >= 3 else 3 if _nsc >= 1 else 0
@@ -404,7 +404,7 @@ def calc_user_level():
             for _p in _candidate_project_dirs
         )
         if _has_wt: s5 += 4
-    except Exception: pass
+    except OSError: pass
     s5 += 4 if _td >= 90 else 3 if _td >= 60 else 2 if _td >= 30 else 1 if _td >= 14 else 0
     s5 = min(s5, 20)
     details["scale"] = s5
@@ -416,7 +416,7 @@ def calc_user_level():
     try:
         LEVEL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         LEVEL_CACHE_FILE.write_text(json.dumps({"date": today_str, "ver": VERSION, "score": total, "level": lvl, "details": details}))
-    except Exception: pass
+    except (OSError, TypeError): pass
     return total, lvl, details
 
 def mlabel(h):
@@ -447,7 +447,7 @@ def _notify(title, msg):
             "osascript", "-e",
             f'display notification {m_lit} with title {t_lit} subtitle "cc-token-status"'
         ], timeout=5)
-    except Exception: pass
+    except (subprocess.SubprocessError, OSError): pass
 
 def check_and_notify(usage):
     """Send macOS notification on rate-limit escalation — one per tier jump.
@@ -479,7 +479,7 @@ def check_and_notify(usage):
             # Drop legacy format (string values keyed by '..._80_<reset>')
             # so pre-v1.4.5 state doesn't keep old keys around forever.
             state = {k: v for k, v in raw.items() if isinstance(v, dict) and "tier" in v}
-    except Exception: pass
+    except (OSError, json.JSONDecodeError, AttributeError): pass
 
     thresholds = [100, 95, 80]  # highest-first so we pick top crossed tier
     checks = [
@@ -557,7 +557,7 @@ def check_and_notify(usage):
                         state[burn_key] = {"tier": -1, "at": datetime.now().isoformat()}
                         changed = True
                         burned = True
-        except Exception: pass
+        except (TypeError, ValueError): pass
 
     # Clear burn-state when condition no longer holds, so next dangerous
     # trajectory can re-fire (e.g. user cooled down then ramped again).
@@ -570,12 +570,13 @@ def check_and_notify(usage):
             NOTIFY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             NOTIFY_STATE_FILE.write_text(json.dumps(state))
             NOTIFY_STATE_FILE.chmod(0o600)
-        except Exception: pass
+        except (OSError, TypeError): pass
 
 # ─── Auto-update (once per day, silent) ──────────────────────────
 
 UPDATE_CHECK_FILE = Path.home() / ".config" / "cc-token-stats" / ".last_update_check"
 UPDATE_LOG_FILE   = Path.home() / ".config" / "cc-token-stats" / ".update.log"
+DIAG_LOG_FILE     = Path.home() / ".config" / "cc-token-stats" / ".diag.log"
 
 def _log_update(msg):
     """Append a timestamped line to the update log; rotate if > 50 KB."""
@@ -585,7 +586,25 @@ def _log_update(msg):
             UPDATE_LOG_FILE.write_text("")
         with UPDATE_LOG_FILE.open("a") as f:
             f.write(f"{datetime.now().isoformat(timespec='seconds')} v{VERSION} {msg}\n")
-    except Exception:
+    except OSError:
+        # Log write itself failed (disk full, perms). Nothing sane to do.
+        pass
+
+def _log_diag(where, err):
+    """Record an unexpected exception with location tag, for post-hoc debugging.
+    Used as the tail-end fallback when narrower except clauses don't catch
+    something — this is what finally replaced the project-wide `except
+    Exception: pass` silent-swallow pattern that masked v1.3.11 inflation
+    and several smaller correctness regressions. 50 KB rotation mirrors
+    _log_update so the file can't grow unbounded."""
+    try:
+        DIAG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if DIAG_LOG_FILE.is_file() and DIAG_LOG_FILE.stat().st_size > 50_000:
+            DIAG_LOG_FILE.write_text("")
+        with DIAG_LOG_FILE.open("a") as f:
+            f.write(f"{datetime.now().isoformat(timespec='seconds')} v{VERSION} "
+                    f"[{where}] {type(err).__name__}: {err}\n")
+    except OSError:
         pass
 
 def _http_get(url, timeout=15):
@@ -593,13 +612,13 @@ def _http_get(url, timeout=15):
     SwiftBar strips env vars and _scproxy may not work in its sandbox, so
     we retry with an explicit ProxyHandler reading scutil --proxy.
     Caller receives bytes (already read). Raises on failure."""
-    import urllib.request
+    import urllib.request, urllib.error
     req = urllib.request.Request(url)
     first_err = None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
-    except Exception as e:
+    except (urllib.error.URLError, OSError, socket.timeout) as e:
         first_err = e
     proxy = _detect_macos_proxy()
     if not proxy:
@@ -621,11 +640,11 @@ def auto_update():
             last = float(UPDATE_CHECK_FILE.read_text().strip())
             if datetime.now().timestamp() - last < 86400:  # 24h
                 return
-    except Exception:
+    except (OSError, ValueError):
         pass
 
     try:
-        import hashlib, re
+        import hashlib, re, urllib.error
         # 1) Download the full remote file + parse VERSION via strict regex.
         #    Strict: matches only `VERSION = "x.y.z..."` at line start — won't
         #    be fooled by a future `VERSION_HISTORY = ...` or similar variable.
@@ -643,7 +662,7 @@ def auto_update():
         def _ver_tuple(v):
             try:
                 return tuple(int(x) for x in v.split("."))
-            except Exception:
+            except (TypeError, ValueError, AttributeError):
                 return ()
 
         local_t, remote_t = _ver_tuple(VERSION), _ver_tuple(remote_ver)
@@ -669,7 +688,7 @@ def auto_update():
             ).stdout.strip()
             if out:
                 plugin_path = os.path.join(out, "cc-token-stats.5m.py")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             pass
         if not plugin_path:
             plugin_path = os.path.join(
@@ -692,9 +711,9 @@ def auto_update():
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
-        except Exception as e:
+        except OSError as e:
             try: os.remove(tmp_path)
-            except Exception: pass
+            except OSError: pass
             _log_update(f"write failed: {type(e).__name__}: {e}")
             return
 
@@ -703,29 +722,29 @@ def auto_update():
         try:
             with open(tmp_path, "rb") as f:
                 disk_data = f.read()
-        except Exception as e:
+        except OSError as e:
             try: os.remove(tmp_path)
-            except Exception: pass
+            except OSError: pass
             _log_update(f"re-read failed: {type(e).__name__}: {e}")
             return
         if len(disk_data) != len(data):
             try: os.remove(tmp_path)
-            except Exception: pass
+            except OSError: pass
             _log_update(f"short write: disk={len(disk_data)} expected={len(data)}")
             return
         actual_hash = hashlib.sha256(disk_data).hexdigest()
         try:
             expected_hash = _http_get(f"{REPO_URL}/checksum.sha256", timeout=10) \
                 .decode().strip().split()[0]
-        except Exception as e:
+        except (urllib.error.URLError, OSError, socket.timeout, UnicodeDecodeError, IndexError) as e:
             try: os.remove(tmp_path)
-            except Exception: pass
+            except OSError: pass
             _log_update(f"checksum fetch failed: {type(e).__name__}: {e}")
             return
 
         if actual_hash != expected_hash:
             try: os.remove(tmp_path)
-            except Exception: pass
+            except OSError: pass
             _log_update(
                 f"checksum mismatch for remote v{remote_ver}: "
                 f"expected={expected_hash[:12]} actual={actual_hash[:12]}"
@@ -759,7 +778,7 @@ def _detect_macos_proxy():
             return f"http://{d['HTTPSProxy']}:{d['HTTPSPort']}"
         if d.get("HTTPEnable") == "1" and d.get("HTTPProxy") and d.get("HTTPPort"):
             return f"http://{d['HTTPProxy']}:{d['HTTPPort']}"
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass
     return None
 
@@ -783,7 +802,7 @@ def get_oauth_token():
                 creds = json.loads(pw)
                 oauth = creds.get("claudeAiOauth", {})
                 return oauth.get("accessToken"), oauth.get("subscriptionType"), oauth.get("rateLimitTier"), oauth.get("expiresAt")
-    except Exception:
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, AttributeError):
         pass
     return None, None, None, None
 
@@ -841,11 +860,11 @@ def fetch_usage():
                     return None, "auth_error"
                 if attempt == 0:
                     continue
-            except Exception:
+            except (urllib.error.URLError, OSError, socket.timeout, json.JSONDecodeError):
                 if attempt == 0:
                     continue
         return None, "api_error"
-    except Exception:
+    except (urllib.error.URLError, OSError, socket.timeout, json.JSONDecodeError):
         return None, "api_error"
 
 USAGE_CACHE = Path.home() / ".config" / "cc-token-stats" / ".usage_cache.json"
@@ -856,18 +875,18 @@ def _load_backoff():
         if BACKOFF_STATE_FILE.is_file():
             s = json.loads(BACKOFF_STATE_FILE.read_text())
             return s.get("until", 0), s.get("count", 0)
-    except Exception: pass
+    except (OSError, json.JSONDecodeError): pass
     return 0, 0
 
 def _save_backoff(until_ts, count):
     try:
         BACKOFF_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         BACKOFF_STATE_FILE.write_text(json.dumps({"until": until_ts, "count": count}))
-    except Exception: pass
+    except (OSError, TypeError): pass
 
 def _clear_backoff():
     try: BACKOFF_STATE_FILE.unlink(missing_ok=True)
-    except Exception: pass
+    except OSError: pass
 
 def _read_synced_usage():
     """Try to read fresh usage data from another machine via sync directory."""
@@ -879,7 +898,7 @@ def _read_synced_usage():
             return None
         data = json.loads(Path(shared).read_text())
         return data
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return None
 
 def _atomic_write_json(path, data, mode=None):
@@ -894,7 +913,7 @@ def _atomic_write_json(path, data, mode=None):
         if mode is not None:
             tmp.chmod(mode)
         os.replace(str(tmp), str(path))
-    except Exception:
+    except (OSError, TypeError):
         pass
 
 
@@ -913,7 +932,7 @@ def _write_synced_usage(data):
         tmp = shared + ".tmp"
         Path(tmp).write_text(json.dumps(data))
         os.replace(tmp, shared)
-    except Exception:
+    except (OSError, TypeError):
         pass
 
 def get_usage():
@@ -927,7 +946,7 @@ def get_usage():
             age = now_ts - cached.get("_ts", 0)
             if age < 540:  # 9 minutes
                 return cached, None
-        except Exception: pass
+        except (OSError, json.JSONDecodeError, AttributeError): pass
 
     # Layer 2: synced usage from another machine (< 9 minutes)
     synced = _read_synced_usage()
@@ -985,7 +1004,7 @@ def _best_cached(now_ts):
             data = json.loads(USAGE_CACHE.read_text())
             if now_ts - data.get("_ts", 0) < 7200:
                 return data
-    except Exception: pass
+    except (OSError, json.JSONDecodeError, AttributeError): pass
     synced = _read_synced_usage()
     if synced and now_ts - synced.get("_ts", 0) < 7200:
         return synced
@@ -1004,7 +1023,7 @@ def _file_fingerprints(base):
         if not os.path.isdir(pd): continue
         for jf in glob.glob(os.path.join(pd, "*.jsonl")):
             try: fps[jf] = os.path.getmtime(jf)
-            except Exception: pass
+            except OSError: pass
     return fps
 
 SCAN_CACHE_SCHEMA = "msgid-dedup-v1"  # bump when scan-result semantics change
@@ -1033,7 +1052,8 @@ def _load_scan_cache(base, today_str):
             s.setdefault("daily_hourly", {})
             s.setdefault("sessions_by_day", {})
             return s
-    except Exception: pass
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
+        _log_diag("_load_scan_cache", e)
     return None
 
 def _save_scan_cache(base, today_str, s):
@@ -1047,7 +1067,8 @@ def _save_scan_cache(base, today_str, s):
         }
         SCAN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         SCAN_CACHE_FILE.write_text(json.dumps(cache))
-    except Exception: pass
+    except (OSError, TypeError) as e:
+        _log_diag("_save_scan_cache", e)
 
 def scan():
     base = os.path.join(CLAUDE_DIR, "projects")
@@ -1182,7 +1203,7 @@ def scan():
                                 try:
                                     local_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone()
                                     msg_date = local_dt.strftime("%Y-%m-%d")
-                                except Exception:
+                                except (TypeError, ValueError):
                                     pass
 
                             # Today
@@ -1233,7 +1254,12 @@ def scan():
                             s["projects"][proj_name]["cost"] += mc
                             s["projects"][proj_name]["msgs"] += 1
 
-                        except Exception: pass
+                        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+                            # One corrupt line — skip it, don't throw out the
+                            # whole file. Log so a pattern of corruption is
+                            # visible in .diag.log (silent-drop was how
+                            # v1.3.11 hid its double-count bug).
+                            _log_diag(f"scan:line:{os.path.basename(jf)}", e)
                 if has:
                     s["sessions"] += 1
                     # v3: record session detail + count sessions per day
@@ -1245,7 +1271,8 @@ def scan():
                             short_dm = MODEL_SHORT.get(dom_model, dom_model.split("-")[-1] if "-" in dom_model else dom_model[:15])
                             sess_list.append({"project": proj_name, "cost": round(sess_cost, 2),
                                               "msgs": sess_msgs, "model": short_dm})
-            except Exception: pass
+            except OSError as e:
+                _log_diag(f"scan:open:{os.path.basename(jf)}", e)
 
     _save_scan_cache(base, today_str, s)
     return s
@@ -1306,7 +1333,8 @@ def save_sync(st):
                 "daily_hourly": daily_hourly,
                 "sessions_by_day": sessions_by_day,
             }, f, indent=2)
-    except Exception: pass
+    except (OSError, TypeError, KeyError) as e:
+        _log_diag("save_sync", e)
 
 def load_remotes():
     """Load remote machines' stats from iCloud, trusting whatever they wrote.
@@ -1364,7 +1392,8 @@ def load_remotes():
                 data.setdefault("daily_hourly", {})
                 data.setdefault("sessions_by_day", {})
                 remotes.append(data)
-            except Exception: pass
+            except (OSError, json.JSONDecodeError, AttributeError, TypeError) as e:
+                _log_diag(f"load_remotes:{m}", e)
     return remotes
 
 DASHBOARD_FILE = Path.home() / ".config" / "cc-token-stats" / "dashboard.html"
@@ -1404,7 +1433,8 @@ def _build_level_data():
             "gap": gap, "next_icon": next_icon, "next_en": next_en, "next_zh": next_zh,
             "tips": tips,
         }
-    except Exception:
+    except (IndexError, KeyError, TypeError, ValueError) as e:
+        _log_diag("_build_level_data", e)
         return {}
 
 def _merge_machines_data(machines):
@@ -1454,7 +1484,7 @@ def _merge_machines_data(machines):
         # hourly (coerce key to int so menu and dashboard use the same space)
         for h, cnt in (m.get("hourly") or {}).items():
             try: hi = int(h)
-            except Exception: continue
+            except (TypeError, ValueError): continue
             hourly[hi] = hourly.get(hi, 0) + cnt
 
         # models
@@ -1587,7 +1617,7 @@ def generate_dashboard():
         try:
             import calendar
             days_in_month = calendar.monthrange(today_dt.year, today_dt.month)[1]
-        except Exception: pass
+        except (ValueError, ImportError): pass
         month_prefix = today_dt.strftime("%Y-%m")
         month_actual = sum(daily[d]["cost"] for d in daily if d[:7] == month_prefix)
         days_left = days_in_month - today_dt.day
@@ -2140,7 +2170,7 @@ def _is_dark():
         r = subprocess.run(["defaults","read","-g","AppleInterfaceStyle"],
                            capture_output=True, text=True, timeout=3)
         return "dark" in r.stdout.lower()
-    except Exception: return True  # default to dark
+    except (subprocess.SubprocessError, OSError): return True  # default to dark
 
 DARK = _is_dark()
 
@@ -2188,7 +2218,7 @@ def _resolve_plugin_path():
         ).stdout.strip()
         if out:
             return os.path.join(out, "cc-token-stats.5m.py")
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass
     return os.path.join(
         str(Path.home()), "Library", "Application Support",
@@ -2265,7 +2295,7 @@ PYEOF
 esac
 """)
         os.chmod(HELPER_FILE, 0o755)
-    except Exception:
+    except OSError:
         pass
 
 def cleanup_duplicate_plugins():
@@ -2291,9 +2321,9 @@ def cleanup_duplicate_plugins():
                 continue  # Never delete ourselves
             try:
                 os.remove(path)
-            except Exception:
+            except OSError:
                 pass
-    except Exception:
+    except OSError:
         pass
 
 
@@ -2326,7 +2356,7 @@ def ensure_cleanup_disabled():
     try:
         raw = Path(settings_path).read_text()
         data = json.loads(raw)
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return  # corrupted JSON — leave it alone, don't make it worse
 
     if not isinstance(data, dict):
@@ -2344,12 +2374,12 @@ def ensure_cleanup_disabled():
         tmp = settings_path + ".tmp"
         Path(tmp).write_text(json.dumps(data, indent=2))
         os.replace(tmp, settings_path)
-    except Exception:
+    except (OSError, TypeError):
         return  # couldn't write (permissions?) — bail silently
 
     try:
         _log_update(f"cleanupPeriodDays protection: {was} -> {CLEANUP_SET_TO}")
-    except Exception:
+    except OSError:
         pass
 
 
@@ -2443,7 +2473,7 @@ def main():
             try:
                 rt = datetime.fromisoformat(reset_str.replace("Z", "+00:00"))
                 return rt.astimezone().strftime("%m-%d %H:%M")
-            except Exception: return ""
+            except (AttributeError, TypeError, ValueError): return ""
 
         def _gauge(pct):
             p = min(max(pct, 0), 100)
@@ -2482,7 +2512,7 @@ def main():
                 if hrs > 0 and mins > 0: return f"{hrs}h{mins}m"
                 if hrs > 0: return f"{hrs}h"
                 return f"{mins}m"
-            except Exception: return ""
+            except (AttributeError, TypeError, ValueError): return ""
 
         gauge_items = [
             ("Session", usage.get("five_hour")),
@@ -2666,7 +2696,7 @@ def main():
                 _sync_age = (datetime.now() - _sync_dt).days
                 if _sync_age >= 7:
                     stale_tag = f" ({_sync_age}d)"
-            except Exception: pass
+            except (TypeError, ValueError): pass
             print(f"--{t('synced')} {m['at']}{stale_tag} | {DIM}")
         print(f"--Token: {tk(ma)} · Sessions: {m['sessions']} | {ROW2}")
         print(f"--{t('input')}: {tk(m['inp'])}   {t('output')}: {tk(m['out'])} | {DIM}")
@@ -2796,7 +2826,8 @@ def main():
             _next_name = LEVELS[_lvl + 1][3] if LANG == "zh" else LEVELS[_lvl + 1][2]
             next_label = t("next_level")
             print(f"--{next_label}: {_next_icon} Lv.{_lvl+2} {_next_name} (+{_gap}) | {DIM}")
-    except Exception: pass
+    except (IndexError, KeyError, TypeError, ValueError) as e:
+        _log_diag("level_display", e)
 
     # ═══════════════════════════════════════════════════════════════
     # OPERATIONS (separated from data by ---)
@@ -2819,7 +2850,7 @@ def main():
     try:
         login_items = subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'], capture_output=True, text=True, timeout=5).stdout
         login_on = "SwiftBar" in login_items
-    except Exception: login_on = False
+    except (subprocess.SubprocessError, OSError): login_on = False
     login_icon = "✓ " if login_on else "  "
     login_label = f"{login_icon} {t('login')}"
     login_action = "login-remove" if login_on else "login-add"
@@ -2858,6 +2889,11 @@ if __name__ == "__main__":
             path = generate_dashboard()
             subprocess.run(["open", path])
         except Exception as e:
+            # Catch-all here is intentional: dashboard rendering touches many
+            # code paths (scan, merge, HTML build, subprocess) and a single
+            # unexpected error should surface to the caller, not crash
+            # silently. Record for diagnostics too.
+            _log_diag("--dashboard", e)
             print(f"Dashboard error: {e}", file=sys.stderr)
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--force-update":
@@ -2865,7 +2901,7 @@ if __name__ == "__main__":
         try:
             if UPDATE_CHECK_FILE.is_file():
                 UPDATE_CHECK_FILE.unlink()
-        except Exception: pass
+        except OSError: pass
         # Temporarily force auto_update on (user asked explicitly — overrides the toggle)
         CFG["auto_update"] = True
         auto_update()
@@ -2882,16 +2918,18 @@ if __name__ == "__main__":
                         f'display notification {body} '
                         f'with title "cc-token-status" subtitle "Update check"'
                     ], timeout=5)
-        except Exception: pass
+        except (OSError, subprocess.SubprocessError): pass
         sys.exit(0)
     try:
         main()
     except Exception as e:
-        # Never crash — show basic menu bar item on any error.
-        # Still write the helper script so 'Check for Updates Now' works
-        # (recovery path for users stuck on a broken version).
+        # Last-resort catch-all: any bug in main() should still leave the
+        # user with a functional menu bar + a way to trigger an update. We
+        # log to .diag.log so the specific failure is recoverable post-hoc
+        # (silent-swallow here is how earlier regressions hid for days).
+        _log_diag("main", e)
         try: install_toggle_script()
-        except Exception: pass
+        except OSError: pass
         helper = str(HELPER_FILE)
         print("CC")
         print("---")
