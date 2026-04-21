@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.6"
+VERSION = "1.5.7"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -30,6 +30,12 @@ DEFAULTS = {
     "language": "auto", "machine_labels": {},
     "notifications": True,
     "auto_update": True,
+    # Browser preference for --dashboard. "auto" respects the system's
+    # default https:// handler via webbrowser.open (NOT the .html file
+    # association, which gets hijacked by VS Code / IntelliJ / Slack on
+    # many Macs and silently eats the click). Set to an app name
+    # ("Safari" / "Google Chrome" / "Firefox") to force one browser.
+    "browser": "auto",
 }
 NOTIFY_STATE_FILE = Path.home() / ".config" / "cc-token-stats" / ".notify_state.json"
 SCAN_CACHE_FILE = Path.home() / ".config" / "cc-token-stats" / ".scan_cache.json"
@@ -1692,6 +1698,45 @@ def generate_dashboard():
     os.rename(str(tmp_path), str(DASHBOARD_FILE))
     return str(DASHBOARD_FILE)
 
+def _open_dashboard(path):
+    """Open dashboard.html in a browser, tolerating the common Mac pitfall
+    where .html got re-associated to a non-browser app (VS Code, IntelliJ,
+    Slack, BBEdit). A plain `open <file.html>` routes through the .html
+    file-extension handler and silently launches that app instead of a
+    browser — to the user it looks like "nothing happened".
+
+    Three-tier strategy, first success wins:
+      1. CFG['browser'] if set to an app name ("Safari" / "Google Chrome"
+         / "Firefox" / etc) — force-open in that app via `open -a`.
+      2. webbrowser.open(file://...) — Python stdlib. On macOS this walks
+         the LaunchServices handler for the https:// scheme (the default
+         browser), NOT the .html file association, so it sidesteps the
+         hijack. Succeeds on any machine where a real browser is set as
+         default for web links.
+      3. Last resort: `open file://<path>`. Goes through the .html
+         association. Only helps on machines that haven't been hijacked,
+         but is better than doing nothing.
+    Every failure is logged to .diag.log so a user reporting "nothing
+    happens when I click 查看完整报告" can tell us where it broke."""
+    path = str(path)
+    browser = CFG.get("browser", "auto")
+    if browser and browser != "auto":
+        try:
+            subprocess.run(["open", "-a", browser, path], timeout=5, check=True)
+            return
+        except (subprocess.SubprocessError, OSError) as e:
+            _log_diag(f"open_dashboard:browser:{browser}", e)
+    try:
+        import webbrowser
+        if webbrowser.open(f"file://{path}"):
+            return
+    except Exception as e:
+        _log_diag("open_dashboard:webbrowser", e)
+    try:
+        subprocess.run(["open", f"file://{path}"], timeout=5)
+    except (subprocess.SubprocessError, OSError) as e:
+        _log_diag("open_dashboard:fallback", e)
+
 def _build_dashboard_html(payload):
     """Build self-contained HTML string for dashboard. All data comes from trusted local caches.
     Uses string.replace() instead of f-string to avoid brace escaping nightmares with JS."""
@@ -2978,7 +3023,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--dashboard":
         try:
             path = generate_dashboard()
-            subprocess.run(["open", path])
+            _open_dashboard(path)
         except Exception as e:
             # Catch-all here is intentional: dashboard rendering touches many
             # code paths (scan, merge, HTML build, subprocess) and a single
