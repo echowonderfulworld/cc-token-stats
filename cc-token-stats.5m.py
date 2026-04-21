@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -595,19 +595,29 @@ def _log_update(msg):
         pass
 
 def _log_diag(where, err):
-    """Record an unexpected exception with location tag, for post-hoc debugging.
+    """Record an unexpected exception with location tag + full traceback.
     Used as the tail-end fallback when narrower except clauses don't catch
     something — this is what finally replaced the project-wide `except
     Exception: pass` silent-swallow pattern that masked v1.3.11 inflation
     and several smaller correctness regressions. 50 KB rotation mirrors
-    _log_update so the file can't grow unbounded."""
+    _log_update so the file can't grow unbounded. Includes traceback so
+    transient bugs (e.g. first-run-after-update NameErrors that vanish on
+    retry) can be diagnosed from the log alone."""
     try:
+        import traceback as _tb
+        tb_text = _tb.format_exc()  # full stack trace if called from except
         DIAG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         if DIAG_LOG_FILE.is_file() and DIAG_LOG_FILE.stat().st_size > 50_000:
             DIAG_LOG_FILE.write_text("")
         with DIAG_LOG_FILE.open("a") as f:
             f.write(f"{datetime.now().isoformat(timespec='seconds')} v{VERSION} "
                     f"[{where}] {type(err).__name__}: {err}\n")
+            # Include traceback when it's meaningful (i.e. called from an
+            # active except block — if traceback.format_exc() returns
+            # 'NoneType: None\n' we're outside an except and skip).
+            if tb_text and not tb_text.startswith("NoneType"):
+                for line in tb_text.splitlines():
+                    f.write(f"    {line}\n")
     except OSError:
         pass
 
@@ -2938,14 +2948,21 @@ if __name__ == "__main__":
     except Exception as e:
         # Last-resort catch-all: any bug in main() should still leave the
         # user with a functional menu bar + a way to trigger an update. We
-        # log to .diag.log so the specific failure is recoverable post-hoc
-        # (silent-swallow here is how earlier regressions hid for days).
+        # log to .diag.log (with full traceback) so the specific failure is
+        # recoverable post-hoc — silent-swallow here is how earlier
+        # regressions hid for days.
         _log_diag("main", e)
         try: install_toggle_script()
         except OSError: pass
         helper = str(HELPER_FILE)
+        # Render error inline so the user sees WHAT failed without having
+        # to open .diag.log. Strip AppleScript-hostile chars so SwiftBar's
+        # '|' attr parser doesn't mis-tokenize a message containing a pipe.
+        err_msg = f"{type(e).__name__}: {e}".replace("|", "/").replace("\n", " ")
+        if len(err_msg) > 80: err_msg = err_msg[:77] + "..."
         print("CC")
         print("---")
-        print(f"Error: {type(e).__name__} | color=red")
+        print(f"Error: {err_msg} | color=red size=11")
         print("Click Refresh to retry | refresh=true")
         print(f"{t('check_update_now')} | bash={helper} param1=force-update terminal=false refresh=true")
+        print(f"Open diag log | bash=open param1={DIAG_LOG_FILE} terminal=false")
