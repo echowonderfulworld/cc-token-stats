@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.13"
+VERSION = "1.5.14"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -342,17 +342,26 @@ def calc_user_level():
     s1_b = 4 if _dens >= 0.6 else 2 if _dens >= 0.4 else 0
     s1 = min(s1_a + s1_b, 20)
     details["usage"] = s1
+    _med_int = int(med) if med else 0
+    if s1_a >= 16:   _hint_med_zh, _hint_med_en = "已达满分", "maxed out"
+    elif _med_int >= 50: _hint_med_zh, _hint_med_en = "再深入到 80 条/次可拿满分（+6）", "reach 80+ msgs/session for full score (+6)"
+    elif _med_int >= 30: _hint_med_zh, _hint_med_en = "再深入到 50 条/次可 +4", "reach 50+ msgs/session for +4"
+    elif _med_int >= 10: _hint_med_zh, _hint_med_en = "再深入到 30 条/次可 +4", "reach 30+ msgs/session for +4"
+    else:                _hint_med_zh, _hint_med_en = "会话普遍较短，先冲到 10+ 条/次拿 2 分", "sessions too short; hit 10+ msgs/session for 2 pts"
+    if s1_b >= 4:  _hint_den_zh, _hint_den_en = "已达满分", "maxed out"
+    elif _dens >= 0.4: _hint_den_zh, _hint_den_en = "密度到 0.6 可 +2（更频繁使用）", "density ≥0.6 earns +2 (use more frequently)"
+    else:              _hint_den_zh, _hint_den_en = "密度到 0.4 可 +2（每两三天用一次以上）", "density ≥0.4 earns +2 (use every 2-3 days)"
     breakdown["usage"] = [
-        {"label_zh": "中位会话长度", "label_en": "Median session length",
-         "value": f"{int(med) if med else 0} msg" + (f" ({_n} sessions)" if _n else ""),
+        {"label_zh": "会话深度（消息数中位）", "label_en": "Session depth (median msgs)",
+         "value_zh": f"{_med_int} 条/次" + (f"（{_n} 次会话）" if _n else "（暂无数据）"),
+         "value_en": f"{_med_int} msgs/session" + (f" ({_n} sessions)" if _n else " (no data)"),
          "points": s1_a, "max": 16,
-         "rule_zh": "≥80→16 | ≥50→10 | ≥30→6 | ≥10→2 | <10→0",
-         "rule_en": "≥80→16 | ≥50→10 | ≥30→6 | ≥10→2 | <10→0"},
-        {"label_zh": "活跃密度", "label_en": "Activity density",
-         "value": f"{_dens:.2f} ({_ad}/{_td} days)",
+         "hint_zh": _hint_med_zh, "hint_en": _hint_med_en},
+        {"label_zh": "活跃密度（活跃天/覆盖天）", "label_en": "Activity density (active/span)",
+         "value_zh": f"{_ad} / {_td} 天 = {_dens:.0%}",
+         "value_en": f"{_ad} of {_td} days = {_dens:.0%}",
          "points": s1_b, "max": 4,
-         "rule_zh": "≥0.6→+4 | ≥0.4→+2",
-         "rule_en": "≥0.6→+4 | ≥0.4→+2"},
+         "hint_zh": _hint_den_zh, "hint_en": _hint_den_en},
     ]
 
     # 2. Context management (20pts)
@@ -386,27 +395,40 @@ def calc_user_level():
     s2_d = 4 if _rc > 0 else 0
     s2 = min(s2_a + s2_b + s2_c + s2_d, 20)
     details["context"] = s2
+    # Hints for each context sub-item
+    if s2_a >= 4: _h_a_zh, _h_a_en = "已达满分", "maxed out"
+    elif _user_cm_lines: _h_a_zh, _h_a_en = "补到 50 行以上可 +2", "extend beyond 50 lines for +2"
+    else:                _h_a_zh, _h_a_en = "创建 ~/.claude/CLAUDE.md 即可 +2", "create ~/.claude/CLAUDE.md for +2"
+    if s2_b >= 4: _h_b_zh, _h_b_en = "已达满分", "maxed out"
+    elif _pcm_count >= 1: _h_b_zh, _h_b_en = f"再给 {3 - _pcm_count} 个项目加 CLAUDE.md 可 +2", f"add CLAUDE.md to {3 - _pcm_count} more projects for +2"
+    else:                 _h_b_zh, _h_b_en = "给项目加 CLAUDE.md，1 个得 2 分，3 个得 4 分", "add CLAUDE.md to projects: 1→2pts, 3→4pts"
+    if s2_c >= 4: _h_c_zh, _h_c_en = "已达满分", "maxed out"
+    elif len(_sm) >= 5 and not _mr: _h_c_zh, _h_c_en = "7 天内更新一下 memory 文件可 +2", "touch memory files within 7 days for +2"
+    elif len(_sm) >= 2: _h_c_zh, _h_c_en = f"再写 {5 - len(_sm)} 个实质 memory 文件并保持活跃可 +2", f"write {5 - len(_sm)} more substantial memory files + stay active for +2"
+    else:               _h_c_zh, _h_c_en = "写 memory 文件（>200B），2 个得 2 分，5 个得 4 分", "write memory files (>200B): 2→2pts, 5→4pts"
+    _h_d_zh = "已达满分" if s2_d >= 4 else "创建 ~/.claude/rules/ 放些规则文件可 +4"
+    _h_d_en = "maxed out" if s2_d >= 4 else "create ~/.claude/rules/ with rule files for +4"
     breakdown["context"] = [
-        {"label_zh": "用户级 CLAUDE.md", "label_en": "User-level CLAUDE.md",
-         "value": (f"{_user_cm_lines} lines" if _user_cm_lines else "missing"),
+        {"label_zh": "个人 CLAUDE.md（~/.claude/CLAUDE.md）", "label_en": "User-level CLAUDE.md",
+         "value_zh": (f"已写 {_user_cm_lines} 行" if _user_cm_lines else "尚未创建"),
+         "value_en": (f"{_user_cm_lines} lines" if _user_cm_lines else "not yet created"),
          "points": s2_a, "max": 4,
-         "rule_zh": ">50 行→4 | 存在→2 | 无→0",
-         "rule_en": ">50 lines→4 | exists→2 | none→0"},
+         "hint_zh": _h_a_zh, "hint_en": _h_a_en},
         {"label_zh": "项目级 CLAUDE.md", "label_en": "Project-level CLAUDE.md",
-         "value": f"{_pcm_count} project(s)",
+         "value_zh": f"{_pcm_count} 个项目有",
+         "value_en": f"{_pcm_count} projects have it",
          "points": s2_b, "max": 4,
-         "rule_zh": "≥3→4 | ≥1→2 | 无→0",
-         "rule_en": "≥3→4 | ≥1→2 | none→0"},
-        {"label_zh": "实质 memory 文件 (>200B)", "label_en": "Memory files (>200B)",
-         "value": f"{len(_sm)} file(s)" + (" (recently used)" if _mr else (" (stale)" if _sm else "")),
+         "hint_zh": _h_b_zh, "hint_en": _h_b_en},
+        {"label_zh": "实质性 memory 文件（>200 字节）", "label_en": "Substantial memory files (>200B)",
+         "value_zh": f"{len(_sm)} 个" + ("，7 天内有更新" if _mr else ("，但都较陈旧" if _sm else "")),
+         "value_en": f"{len(_sm)} files" + (", touched <7d" if _mr else (", all stale" if _sm else "")),
          "points": s2_c, "max": 4,
-         "rule_zh": "≥5 且 7 天内有更新→4 | ≥2→2 | 其他→0",
-         "rule_en": "≥5 & touched <7d→4 | ≥2→2 | else→0"},
-        {"label_zh": "rules 文件", "label_en": "rules files",
-         "value": f"{_rc} file(s)",
+         "hint_zh": _h_c_zh, "hint_en": _h_c_en},
+        {"label_zh": "rules 文件", "label_en": "Rules files",
+         "value_zh": f"{_rc} 个",
+         "value_en": f"{_rc} files",
          "points": s2_d, "max": 4,
-         "rule_zh": "≥1→4 | 无→0",
-         "rule_en": "≥1→4 | none→0"},
+         "hint_zh": _h_d_zh, "hint_en": _h_d_en},
     ]
 
     # 3. Tool ecosystem (20pts)
@@ -426,17 +448,25 @@ def calc_user_level():
     s3_b = 4 if len(_pl) >= 3 else 2 if len(_pl) >= 1 else 0
     s3 = min(s3_a + s3_b, 20)
     details["tools"] = s3
+    if s3_a >= 14:   _h_mcp_zh, _h_mcp_en = "已达满分", "maxed out"
+    elif _em >= 3:   _h_mcp_zh, _h_mcp_en = "再装 1 个个人 MCP 可 +4 达满分", "add 1 personal MCP for +4 (full)"
+    elif _em >= 2:   _h_mcp_zh, _h_mcp_en = "再装 1 个个人 MCP 可 +3", "add 1 personal MCP for +3"
+    elif _em >= 1:   _h_mcp_zh, _h_mcp_en = "再装 1 个 MCP 可 +3", "add 1 MCP server for +3"
+    else:            _h_mcp_zh, _h_mcp_en = "装一个 MCP server（~/.claude/mcp.json）可 +4", "install any MCP server for +4"
+    if s3_b >= 4:    _h_pl_zh, _h_pl_en = "已达满分", "maxed out"
+    elif len(_pl) >= 1: _h_pl_zh, _h_pl_en = f"再装 {3 - len(_pl)} 个插件可 +2", f"install {3 - len(_pl)} more plugins for +2"
+    else:            _h_pl_zh, _h_pl_en = "装一个插件可 +2", "install any plugin for +2"
     breakdown["tools"] = [
-        {"label_zh": "MCP servers (工作类 ×0.5)", "label_en": "MCP servers (work ×0.5)",
-         "value": f"{_pm} personal + {_mc-_pm} work → effective {_em:g}",
+        {"label_zh": "MCP servers（工作类禅道/GitLab 等按 0.5 折算）", "label_en": "MCP servers (work types count as 0.5)",
+         "value_zh": f"个人 {_pm} + 工作 {_mc-_pm}，等效 {_em:g}",
+         "value_en": f"{_pm} personal + {_mc-_pm} work → effective {_em:g}",
          "points": s3_a, "max": 14,
-         "rule_zh": "有效数 ≥4→14 | ≥3→10 | ≥2→7 | ≥1→4 | 无→0",
-         "rule_en": "effective ≥4→14 | ≥3→10 | ≥2→7 | ≥1→4 | none→0"},
-        {"label_zh": "插件 (plugins/cache/*)", "label_en": "Plugins (plugins/cache/*)",
-         "value": f"{len(_pl)} plugin(s)",
+         "hint_zh": _h_mcp_zh, "hint_en": _h_mcp_en},
+        {"label_zh": "已装插件", "label_en": "Installed plugins",
+         "value_zh": f"{len(_pl)} 个",
+         "value_en": f"{len(_pl)} plugins",
          "points": s3_b, "max": 4,
-         "rule_zh": "≥3→4 | ≥1→2 | 无→0",
-         "rule_en": "≥3→4 | ≥1→2 | none→0"},
+         "hint_zh": _h_pl_zh, "hint_en": _h_pl_en},
     ]
 
     # 4. Automation (20pts) — self-built weighted
@@ -466,22 +496,32 @@ def calc_user_level():
     _sr = _sa / max(_ta, 1)
     s4 = min(int(_raw * (0.3 + 0.7 * _sr)), 20)
     details["automation"] = s4
+    if s4_raw_cmd >= 14: _h_cmd_zh, _h_cmd_en = "已达满分", "maxed out"
+    elif _nsc >= 5: _h_cmd_zh, _h_cmd_en = f"再自建 {10 - _nsc} 个 command 可 +4", f"write {10 - _nsc} more self-built commands for +4"
+    elif _nsc >= 3: _h_cmd_zh, _h_cmd_en = f"再自建 {5 - _nsc} 个可 +4", f"write {5 - _nsc} more for +4"
+    elif _nsc >= 1: _h_cmd_zh, _h_cmd_en = f"再自建 {3 - _nsc} 个可 +3", f"write {3 - _nsc} more for +3"
+    else:           _h_cmd_zh, _h_cmd_en = "自建 1 个 command 可 +3（别用框架/插件自带的）", "write 1 custom command (not framework-installed) for +3"
+    if s4_raw_hook >= 6: _h_hk_zh, _h_hk_en = "已达满分", "maxed out"
+    elif _hc >= 1: _h_hk_zh, _h_hk_en = f"再配 {3 - _hc} 个 hook 可 +3", f"add {3 - _hc} more hooks for +3"
+    else:          _h_hk_zh, _h_hk_en = "在 settings.json 配 1 个 hook 可 +3", "add 1 hook in settings.json for +3"
+    _ratio_factor = 0.3 + 0.7 * _sr
     breakdown["automation"] = [
-        {"label_zh": "自建 commands（排除框架前缀）", "label_en": "Self-built commands (framework prefixes excluded)",
-         "value": f"{_nsc} / {len(_ac)} total",
+        {"label_zh": "自建 commands（已排除 gsd/jjx 等框架前缀）", "label_en": "Self-built commands (framework prefixes excluded)",
+         "value_zh": f"{_nsc} 个自建 / 共 {len(_ac)} 个 commands",
+         "value_en": f"{_nsc} self-built of {len(_ac)} total",
          "points": s4_raw_cmd, "max": 14,
-         "rule_zh": "自建数 ≥10→14 | ≥5→10 | ≥3→6 | ≥1→3 | 无→0",
-         "rule_en": "self-built ≥10→14 | ≥5→10 | ≥3→6 | ≥1→3 | none→0"},
-        {"label_zh": "hooks 数量", "label_en": "Hooks count",
-         "value": f"{_hc} hook(s)",
+         "hint_zh": _h_cmd_zh, "hint_en": _h_cmd_en},
+        {"label_zh": "hooks 数量（settings.json）", "label_en": "Hooks in settings.json",
+         "value_zh": f"{_hc} 个",
+         "value_en": f"{_hc} hooks",
          "points": s4_raw_hook, "max": 6,
-         "rule_zh": "≥3→6 | ≥1→3 | 无→0",
-         "rule_en": "≥3→6 | ≥1→3 | none→0"},
-        {"label_zh": "最终得分计算", "label_en": "Final score calc",
-         "value": f"raw {_raw} × ({_sa}/{_ta} ratio → ×{(0.3 + 0.7 * _sr):.2f}) = {s4}",
+         "hint_zh": _h_hk_zh, "hint_en": _h_hk_en},
+        {"label_zh": "折扣说明：装框架不算自建", "label_en": "Why the discount",
+         "value_zh": f"自建占比 {_sa}/{_ta}（{_sr:.0%}），系数 ×{_ratio_factor:.2f}，最终 {_raw} × {_ratio_factor:.2f} = {s4} 分",
+         "value_en": f"Self-built ratio {_sa}/{_ta} ({_sr:.0%}) → ×{_ratio_factor:.2f}; final {_raw} × {_ratio_factor:.2f} = {s4}",
          "points": 0, "max": 0,
-         "rule_zh": "最终 = raw × (0.3 + 0.7 × ratio)；纯框架系数 0.30，全自建 1.00",
-         "rule_en": "final = raw × (0.3 + 0.7 × ratio); all-framework 0.30, all-self 1.00"},
+         "hint_zh": "自己写的 commands / skills 越多，系数越接近 1.00；纯装框架≈ ×0.30",
+         "hint_en": "more self-built = closer to ×1.00; all-framework ≈ ×0.30"},
     ]
 
     # 5. Scale (20pts) — substantial projects only
@@ -506,22 +546,34 @@ def calc_user_level():
     s5_c = 4 if _td >= 90 else 3 if _td >= 60 else 2 if _td >= 30 else 1 if _td >= 14 else 0
     s5 = min(s5_a + s5_b + s5_c, 20)
     details["scale"] = s5
+    if s5_a >= 10: _h_sp_zh, _h_sp_en = "已达满分", "maxed out"
+    elif _sp >= 5: _h_sp_zh, _h_sp_en = f"再深入 {8 - _sp} 个项目（≥5 次会话）可 +3", f"make {8 - _sp} more projects substantial for +3"
+    elif _sp >= 3: _h_sp_zh, _h_sp_en = f"再深入 {5 - _sp} 个项目可 +3", f"make {5 - _sp} more substantial for +3"
+    elif _sp >= 1: _h_sp_zh, _h_sp_en = f"再深入 {3 - _sp} 个项目可 +2", f"make {3 - _sp} more substantial for +2"
+    else:          _h_sp_zh, _h_sp_en = "任一项目用够 5 次会话可 +2", "use any project for 5+ sessions to earn 2 pts"
+    _h_wt_zh = "已达满分" if _has_wt else "任一项目用一次 git worktree 可 +4"
+    _h_wt_en = "maxed out" if _has_wt else "use git worktree in any project for +4"
+    if s5_c >= 4: _h_ten_zh, _h_ten_en = "已达满分", "maxed out"
+    elif _td >= 60: _h_ten_zh, _h_ten_en = f"再用 {90 - _td} 天达 90 天可 +1", f"use {90 - _td} more days to hit 90 for +1"
+    elif _td >= 30: _h_ten_zh, _h_ten_en = f"再用 {60 - _td} 天达 60 天可 +1", f"use {60 - _td} more days to hit 60 for +1"
+    elif _td >= 14: _h_ten_zh, _h_ten_en = f"再用 {30 - _td} 天达 30 天可 +1", f"use {30 - _td} more days to hit 30 for +1"
+    else:           _h_ten_zh, _h_ten_en = f"用满 14 天可 +1（时间自然就有了）", "use for 14 days to earn 1 pt"
     breakdown["scale"] = [
-        {"label_zh": "实质项目 (≥5 sessions)", "label_en": "Substantial projects (≥5 sessions)",
-         "value": f"{_sp} of {len(_ps)} project(s)",
+        {"label_zh": "深度使用的项目（≥5 次会话）", "label_en": "Substantial projects (≥5 sessions each)",
+         "value_zh": f"{_sp} / {len(_ps)} 个项目",
+         "value_en": f"{_sp} of {len(_ps)} projects",
          "points": s5_a, "max": 10,
-         "rule_zh": "≥8→10 | ≥5→7 | ≥3→4 | ≥1→2 | 无→0",
-         "rule_en": "≥8→10 | ≥5→7 | ≥3→4 | ≥1→2 | none→0"},
-        {"label_zh": "worktree 使用", "label_en": "Worktree usage",
-         "value": "yes" if _has_wt else "no",
+         "hint_zh": _h_sp_zh, "hint_en": _h_sp_en},
+        {"label_zh": "git worktree 使用", "label_en": "git worktree usage",
+         "value_zh": "已使用" if _has_wt else "未使用",
+         "value_en": "in use" if _has_wt else "not used",
          "points": s5_b, "max": 4,
-         "rule_zh": "任一项目用了 worktree→4 | 否→0",
-         "rule_en": "any project using worktree→4 | no→0"},
-        {"label_zh": "使用年限", "label_en": "Tenure",
-         "value": f"{_td} days",
+         "hint_zh": _h_wt_zh, "hint_en": _h_wt_en},
+        {"label_zh": "使用年限（首次使用到最近一次的跨度）", "label_en": "Tenure (first to latest activity)",
+         "value_zh": f"{_td} 天",
+         "value_en": f"{_td} days",
          "points": s5_c, "max": 4,
-         "rule_zh": "≥90→4 | ≥60→3 | ≥30→2 | ≥14→1 | <14→0",
-         "rule_en": "≥90→4 | ≥60→3 | ≥30→2 | ≥14→1 | <14→0"},
+         "hint_zh": _h_ten_zh, "hint_en": _h_ten_en},
     ]
 
     total = s1 + s2 + s3 + s4 + s5
@@ -2199,14 +2251,14 @@ var html='<div class="dtip">';
 items.forEach(function(it){
 var isFoot=!it.max;
 var label=esc(zh?it.label_zh:it.label_en);
-var rule=esc(zh?it.rule_zh:it.rule_en);
-var value=esc(it.value||'');
+var value=esc((zh?it.value_zh:it.value_en)||it.value||'');
+var hint=esc((zh?it.hint_zh:it.hint_en)||(zh?it.rule_zh:it.rule_en)||'');
 html+='<div class="dtip-row'+(isFoot?' dtip-foot':'')+'">';
 html+='<div class="dtip-head"><span class="dtip-label">'+label+'</span>';
 if(!isFoot)html+='<span class="dtip-pts">'+it.points+' / '+it.max+'</span>';
 html+='</div>';
 html+='<div class="dtip-val">'+value+'</div>';
-html+='<div class="dtip-rule">'+rule+'</div>';
+if(hint)html+='<div class="dtip-rule">'+hint+'</div>';
 html+='</div>';
 });
 html+='</div>';
