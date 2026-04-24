@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.9"
+VERSION = "1.5.10"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -230,12 +230,12 @@ def tier(m):
 # ─── User Level System ────────────────────────────────────────────
 
 LEVELS = [
-    (0,  "🌑", "Starter",      "练气期"),
-    (13, "🌒", "Planner",      "筑基期"),
-    (31, "🌓", "Engineer",     "金丹期"),
-    (51, "🌔", "Integrator",   "元婴期"),
-    (71, "🌕", "Architect",    "化神期"),
-    (86, "👑", "Orchestrator", "大乘期"),
+    (0,  "🌑", "Starter",      "入门"),
+    (13, "🌒", "Planner",      "初级工程师"),
+    (31, "🌓", "Engineer",     "中级工程师"),
+    (51, "🌔", "Integrator",   "高级工程师"),
+    (71, "🌕", "Architect",    "架构师"),
+    (86, "👑", "Orchestrator", "首席架构师"),
 ]
 
 LEVEL_CACHE_FILE = Path.home() / ".config" / "cc-token-stats" / ".level_cache.json"

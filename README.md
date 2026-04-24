@@ -83,12 +83,12 @@ No dependencies to install manually. SwiftBar is auto-installed if missing.
 Multi-dimension scoring based on your Claude Code usage maturity:
 
 ```
-🌑 Lv.1  Starter      练气期
-🌒 Lv.2  Planner      筑基期
-🌓 Lv.3  Engineer     金丹期
-🌔 Lv.4  Integrator   元婴期
-🌕 Lv.5  Architect    化神期
-👑 Lv.6  Orchestrator 大乘期
+🌑 Lv.1  Starter      入门
+🌒 Lv.2  Planner      初级工程师
+🌓 Lv.3  Engineer     中级工程师
+🌔 Lv.4  Integrator   高级工程师
+🌕 Lv.5  Architect    架构师
+👑 Lv.6  Orchestrator 首席架构师
 ```
 
 Scored across 5 dimensions (100 points total):
