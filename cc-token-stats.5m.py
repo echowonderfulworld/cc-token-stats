@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.16"
+VERSION = "1.5.17"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -1676,6 +1676,7 @@ def _build_level_data():
             "cur_threshold": cur_threshold, "next_threshold": next_threshold,
             "gap": gap, "next_icon": next_icon, "next_en": next_en, "next_zh": next_zh,
             "tips": tips,
+            "hostname": socket.gethostname(),
         }
     except (IndexError, KeyError, TypeError, ValueError) as e:
         _log_diag("_build_level_data", e)
@@ -2284,7 +2285,8 @@ var html='<div style="display:flex;gap:20px;flex-wrap:wrap">';
 // Left: title + radar + progress
 html+='<div style="flex:0 0 38%;min-width:260px">';
 html+='<div style="font-size:16px;color:#e6edf3;font-weight:700;margin-bottom:4px">'+L.icon+' Lv.'+L.lvl+' '+name+'</div>';
-html+='<div style="color:#8b949e;font-size:12px;margin-bottom:12px">'+L.score+' / '+L.max_score+(zh?' 分':' pts')+'</div>';
+html+='<div style="color:#8b949e;font-size:12px;margin-bottom:4px">'+L.score+' / '+L.max_score+(zh?' 分':' pts')+'</div>';
+if(L.hostname)html+='<div style="color:#6e7681;font-size:10px;margin-bottom:12px">'+(zh?'本机统计 · ':'This machine · ')+esc(L.hostname)+'</div>';
 html+='<div id="radarChart" style="width:100%;height:220px"></div>';
 // XP progress bar to next level
 var progress=L.next_threshold>L.cur_threshold?((L.score-L.cur_threshold)/(L.next_threshold-L.cur_threshold)*100):100;
