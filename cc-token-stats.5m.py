@@ -10,7 +10,7 @@ cc-token-status — Claude Code usage dashboard in your menu bar.
 https://github.com/jayson-jia-dev/cc-token-status
 """
 
-VERSION = "1.5.15"
+VERSION = "1.5.16"
 REPO_URL = "https://raw.githubusercontent.com/jayson-jia-dev/cc-token-status/main"
 
 import json, os, glob, shlex, socket, subprocess, sys
@@ -2468,6 +2468,7 @@ var badges=[
 ['cost5k','\ud83d\udcb8','\u4e94\u5343\u5200\u65a9','$5K Club',cost>=5000],
 ['cost10k','\ud83d\udc51','\u4e00\u4e07\u5200\u65a9','$10K Club',cost>=10000],
 ['cost100k','\ud83d\ude80','\u5341\u4e07\u5200\u65a9','$100K Club',cost>=100000],
+['cost1m','\ud83c\udf0c','\u767e\u4e07\u5200\u65a9','$1M Club',cost>=1000000],
 ['night','\ud83c\udf19','\u591c\u732b\u5b50','Night Owl',lateCount>=50],
 ['night100','\ud83e\udddb','\u5f7b\u591c\u8005','Vampire Coder',lateCount>=200],
 ['opus90','\ud83d\udc9c','Opus \u4fe1\u5f92','Opus Devotee',opusPct>=90],
@@ -2495,6 +2496,7 @@ cost3k:['\u7d2f\u8ba1\u82b1\u8d39\u8fbe\u5230 $3,000','Cumulative cost reaches $
 cost5k:['\u7d2f\u8ba1\u82b1\u8d39\u8fbe\u5230 $5,000','Cumulative cost reaches $5,000'],
 cost10k:['\u7d2f\u8ba1\u82b1\u8d39\u8fbe\u5230 $10,000','Cumulative cost reaches $10,000'],
 cost100k:['\u7d2f\u8ba1\u82b1\u8d39\u8fbe\u5230 $100,000','Cumulative cost reaches $100,000'],
+cost1m:['\u7d2f\u8ba1\u82b1\u8d39\u8fbe\u5230 $1,000,000','Cumulative cost reaches $1,000,000'],
 night:['\u51cc\u6668 0-4 \u70b9\u53d1\u9001\u6d88\u606f \u2265 50 \u6761','50+ messages between midnight and 4am'],
 night100:['\u51cc\u6668 0-4 \u70b9\u53d1\u9001\u6d88\u606f \u2265 200 \u6761','200+ messages between midnight and 4am'],
 opus90:['Opus \u6a21\u578b\u82b1\u8d39\u5360\u603b\u6210\u672c \u2265 90%','Opus spend \u2265 90% of total cost'],
